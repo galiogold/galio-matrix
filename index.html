@@ -101,6 +101,7 @@
       <div class="mode" data-mode="erase">🩹 <span>Sil</span></div>
       <div class="mode" data-mode="sprue">📍 <span>Yolluk</span></div>
       <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
+      <div class="mode" data-mode="parts">🔗 <span>Parça</span></div>
     </div>
     <div class="spacer"></div>
     <button class="btn" id="btnRender">📷 Görüntü</button>
@@ -190,6 +191,29 @@
           <div class="row"><label>Eklenen çubuk</label><span class="val" id="stSprue">0</span></div>
         </details>
       </div>
+
+      <!-- Parçalar -->
+      <div class="sec" id="secParts" hidden>
+        <h3>Hazır Parça</h3>
+        <div class="row"><label>Parça</label>
+          <select id="partKind" style="width:150px"><option value="ring">Halka (jump ring)</option></select>
+        </div>
+        <div class="row"><label>Tel kalınlığı</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partThick" min="0.1" max="5" step="0.05" value="0.8" style="width:66px; text-align:right"><span style="color:var(--muted)">mm</span></span>
+        </div>
+        <div class="row"><label>İç çap</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partInner" min="0.5" max="40" step="0.1" value="3" style="width:66px; text-align:right"><span style="color:var(--muted)">mm</span></span>
+        </div>
+        <div class="row"><label>Eğim açısı</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partTilt" min="-180" max="180" step="5" value="0" style="width:66px; text-align:right"><span style="color:var(--muted)">°</span></span>
+        </div>
+        <div class="row"><label>Döndürme</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partRot" min="-180" max="180" step="5" value="0" style="width:66px; text-align:right"><span style="color:var(--muted)">°</span></span>
+        </div>
+        <div class="hint" id="partHint"><b>Eklemek:</b> modelde halkanın gelmesini istediğin yere tıkla.<br><b>Büyüt/küçült:</b> seçiliyken fare <b>tekerleği</b>, ya da yukarıdan iç çapı yaz.<br><b>Taşı:</b> tıkla sürükle. <b>Sil:</b> seç → Del.</div>
+        <button class="btn block" id="partDelBtn" hidden style="margin-top:10px">🗑 Seçili parçayı sil</button>
+        <div class="mini" id="partState">Eklemek için modele tıkla</div>
+      </div>
     </aside>
 
     <div id="drop"><div class="card">
@@ -250,6 +274,9 @@ const sprueMat=new THREE.MeshStandardMaterial({color:0x0a84ff, metalness:0.3, ro
 const sprueSelMat=new THREE.MeshStandardMaterial({color:0xff9f0a, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
 const displayMesh=new THREE.Mesh(new THREE.BufferGeometry(), goldMat); scene.add(displayMesh);
 const spruesGroup=new THREE.Group(); scene.add(spruesGroup);
+const partsGroup=new THREE.Group(); scene.add(partsGroup);
+const ringMat=new THREE.MeshStandardMaterial({color:0xd9b24a, metalness:0.9, roughness:0.3, side:THREE.DoubleSide});
+const ringSelMat=new THREE.MeshStandardMaterial({color:0xff9f0a, metalness:0.4, roughness:0.4, side:THREE.DoubleSide});
 const cursorRing=new THREE.Mesh(new THREE.RingGeometry(0.9,1,48), new THREE.MeshBasicMaterial({color:0xff453a, side:THREE.DoubleSide, transparent:true, opacity:0.95, depthTest:false}));
 cursorRing.visible=false; cursorRing.renderOrder=999; scene.add(cursorRing);
 const startMark=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), new THREE.MeshBasicMaterial({color:0x0a84ff, depthTest:false}));
@@ -270,13 +297,14 @@ function updatePanel(){
   $('secBrush').hidden = mode!=='erase';
   $('secSprue').hidden = mode!=='sprue';
   $('secSize').hidden = mode!=='size';
+  $('secParts').hidden = mode!=='parts';
 }
 function setMode(m){
   mode=m;
   document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
-  cursorRing.visible=false; cancelSprue(); deselectSprue(); updatePanel();
+  cursorRing.visible=false; cancelSprue(); deselectSprue(); deselectPart(); updatePanel();
   if(m!=='size') setPreview('');
-  const edit=(m==='erase'||m==='sprue');
+  const edit=(m==='erase'||m==='sprue'||m==='parts');
   controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
   renderer.domElement.style.cursor = edit ? 'crosshair' : 'grab';
   displayMesh.material = (m==='size') ? sizeMat : goldMat;
@@ -366,7 +394,7 @@ function loadGeometry(geom, name, isDemo){
   displayGeom.setIndex(new THREE.BufferAttribute(renderIndexBuffer,1)); displayGeom.setDrawRange(0, fullIndex.length);
   displayMesh.geometry=displayGeom;
   const size=new THREE.Vector3(); fullGeom.boundingBox.getSize(size); modelRadius=fullGeom.boundingSphere.radius;
-  clearSprues(); undoStack.length=0; previewActive=false;
+  clearSprues(); clearParts(); undoStack.length=0; previewActive=false;
   scene.remove(grid); grid=new THREE.GridHelper(Math.max(modelRadius*3,10),20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.6; grid.position.y=fullGeom.boundingBox.min.y; scene.add(grid);
   applyAnalysis(analyzeRingPure(basePos,null)); computeVertAng();
   $('curSize').textContent=currentSizeMM.toFixed(0); $('curDia').textContent=(2*innerR).toFixed(2)+' mm'; $('curSizeIn').value='';
@@ -408,8 +436,8 @@ function addSprue(p1,p2,record){ if(p1.distanceTo(p2)<1e-4) return null;
   const mesh=new THREE.Mesh(buildSprueGeom(p1,p2,sprueDia), sprueMat); mesh.userData={p1:p1.clone(),p2:p2.clone(),dia:sprueDia};
   spruesGroup.add(mesh); if(record!==false) undoStack.push({type:'sprue',mesh}); updateStats(); return mesh; }
 function rebuildSprue(m){ const d=m.userData; m.geometry.dispose(); m.geometry=buildSprueGeom(d.p1,d.p2,d.dia); }
-function selectSprue(m){ if(selectedSprue&&selectedSprue!==m) selectedSprue.material=sprueMat; selectedSprue=m; if(m){ m.material=sprueSelMat; setSprueUI(m.userData.dia); } const b=$('sprueSelBox'); if(b) b.hidden=!m; }
-function deselectSprue(){ if(selectedSprue){ selectedSprue.material=sprueMat; selectedSprue=null; } const b=$('sprueSelBox'); if(b) b.hidden=true; }
+function selectSprue(m){ if(selectedSprue&&selectedSprue!==m) selectedSprue.material=sprueMat; selectedSprue=m; if(m){ m.material=sprueSelMat; setSprueUI(m.userData.dia); controls.enableZoom=false; } const b=$('sprueSelBox'); if(b) b.hidden=!m; }
+function deselectSprue(){ if(selectedSprue){ selectedSprue.material=sprueMat; selectedSprue=null; } controls.enableZoom=true; const b=$('sprueSelBox'); if(b) b.hidden=true; }
 function deleteSelectedSprue(){ if(!selectedSprue) return; selectedSprue.geometry.dispose(); spruesGroup.remove(selectedSprue); selectedSprue=null; const b=$('sprueSelBox'); if(b) b.hidden=true; updateStats(); }
 function placePerp(hit){ const p1=hit.point.clone(); let n=(hit.face&&hit.face.normal)?hit.face.normal.clone():p1.clone().normalize();
   if(n.lengthSq()<1e-9) n.copy(p1).normalize(); if(n.lengthSq()<1e-9) n.set(0,1,0); n.normalize(); if(n.dot(p1)<0) n.negate();
@@ -419,15 +447,32 @@ function straightenSprue(m){ const u=m.userData; const len=new THREE.Vector3().s
 function snapSprueBase(m){ if(!fullGeom||!fullGeom.boundsTree) return; const res={}; const hit=fullGeom.boundsTree.closestPointToPoint(m.userData.p1.clone(), res);
   if(hit&&res.point){ const d=new THREE.Vector3().subVectors(m.userData.p2,m.userData.p1); m.userData.p1.copy(res.point); m.userData.p2.copy(res.point).add(d); rebuildSprue(m); } }
 function updateSprueHint(){ const h=$('sprueHint'); if(!h) return; h.innerHTML = (sprueMode==='1p')
-  ? '<b>Tek tık:</b> yüzeyde bir yere tıkla → o noktadan dışa dik çubuk çıkar (uzunluğu yukarıdan ver).<br><b>Taşı:</b> çubuğa tıkla sürükle. <b>Sil:</b> seç → Del.'
-  : '<b>İki nokta:</b> boşluğa başlangıç + bitiş tıkla.<br><b>Taşı:</b> çubuğa tıkla, sürükle. <b>Sil:</b> seç → Del.'; }
+  ? '<b>Tek tık:</b> yüzeyde bir yere tıkla → o noktadan dışa dik çubuk çıkar (uzunluğu yukarıdan ver).<br><b>Taşı:</b> çubuğa tıkla sürükle. <b>Büyüt/küçült:</b> seçiliyken tekerlek. <b>Sil:</b> seç → Del.'
+  : '<b>İki nokta:</b> boşluğa başlangıç + bitiş tıkla.<br><b>Taşı:</b> çubuğa tıkla, sürükle. <b>Büyüt/küçült:</b> seçiliyken tekerlek. <b>Sil:</b> seç → Del.'; }
+
+// ---------- Hazır parçalar (halka) ----------
+let selectedPart=null, dragKind=null;
+let partThick=0.8, partInnerD=3, partTilt=0, partRot=0;
+function clearParts(){ [...partsGroup.children].forEach(m=>{m.geometry.dispose(); partsGroup.remove(m);}); selectedPart=null; const b=$('partDelBtn'); if(b) b.hidden=true; }
+function buildRingGeom(u){ const tube=Math.max(0.05,u.thickness/2), radius=u.innerD/2+tube;
+  const geo=new THREE.TorusGeometry(radius, tube, 18, 64);
+  const rx=THREE.MathUtils.degToRad(90+u.tilt), ry=THREE.MathUtils.degToRad(u.rot);
+  const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(rx,ry,0,'XYZ'));
+  geo.applyMatrix4(new THREE.Matrix4().compose(u.pos, q, new THREE.Vector3(1,1,1))); return geo; }
+function rebuildPart(m){ m.geometry.dispose(); m.geometry=buildRingGeom(m.userData); }
+function addRing(point){ const u={kind:'ring', pos:point.clone(), tilt:partTilt, rot:partRot, thickness:partThick, innerD:partInnerD};
+  const m=new THREE.Mesh(buildRingGeom(u), ringMat); m.userData=u; partsGroup.add(m); undoStack.push({type:'part',mesh:m}); updateStats(); selectPart(m); return m; }
+function setPartUI(u){ const a=$('partThick'),b=$('partInner'),c=$('partTilt'),d=$('partRot'); if(a)a.value=u.thickness; if(b)b.value=(+u.innerD).toFixed(1); if(c)c.value=u.tilt; if(d)d.value=u.rot; }
+function selectPart(m){ if(selectedPart&&selectedPart!==m) selectedPart.material=ringMat; selectedPart=m; if(m){ m.material=ringSelMat; setPartUI(m.userData); controls.enableZoom=false; } const b=$('partDelBtn'); if(b) b.hidden=!m; }
+function deselectPart(){ if(selectedPart){ selectedPart.material=ringMat; selectedPart=null; } controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; }
+function deletePart(){ if(!selectedPart) return; selectedPart.geometry.dispose(); partsGroup.remove(selectedPart); selectedPart=null; controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; updateStats(); }
 
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
   if(mode==='erase'){ painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
   else if(mode==='sprue'){
     pointerToRay(ev); const sh=raycaster.intersectObjects(spruesGroup.children,false);
-    if(sh.length){ selectSprue(sh[0].object); dragging=sh[0].object; cancelSprue();
+    if(sh.length){ selectSprue(sh[0].object); dragging=sh[0].object; dragKind='sprue'; cancelSprue();
       camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), sh[0].point); _dragPrev.copy(sh[0].point);
       renderer.domElement.setPointerCapture(ev.pointerId); return; }
     deselectSprue();
@@ -435,18 +480,33 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
     if(sprueMode==='1p'){ placePerp(h); $('sprueState').textContent='Dik çubuk eklendi ✓'; return; }
     spruePts.push(h.point.clone());
     if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
-    else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } } });
+    else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } }
+  else if(mode==='parts'){
+    pointerToRay(ev); const ph=raycaster.intersectObjects(partsGroup.children,false);
+    if(ph.length){ selectPart(ph[0].object); dragging=ph[0].object; dragKind='part';
+      camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), ph[0].point); _dragPrev.copy(ph[0].point);
+      renderer.domElement.setPointerCapture(ev.pointerId); return; }
+    deselectPart();
+    const h=pickSurface(ev); if(!h) return; addRing(h.point); $('partState').textContent='Halka eklendi ✓ (tekerlekle boyutla, sürükle taşı)'; } });
 renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
   if(dragging){ pointerToRay(ev); if(raycaster.ray.intersectPlane(dragPlane,_dragPt)){ const u=dragging.userData, dx=_dragPt.x-_dragPrev.x, dy=_dragPt.y-_dragPrev.y, dz=_dragPt.z-_dragPrev.z;
-      u.p1.x+=dx;u.p1.y+=dy;u.p1.z+=dz; u.p2.x+=dx;u.p2.y+=dy;u.p2.z+=dz; rebuildSprue(dragging); _dragPrev.copy(_dragPt); } return; }
+      if(dragKind==='part'){ u.pos.x+=dx;u.pos.y+=dy;u.pos.z+=dz; rebuildPart(dragging); }
+      else { u.p1.x+=dx;u.p1.y+=dy;u.p1.z+=dz; u.p2.x+=dx;u.p2.y+=dy;u.p2.z+=dz; rebuildSprue(dragging); }
+      _dragPrev.copy(_dragPt); } return; }
   if(mode==='erase'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(painting&&(ev.buttons&1)&&h) eraseAt(h.point); }
   else if(mode==='sprue'&&spruePts.length===1){ const h=pickSurface(ev); if(h){ previewLine.visible=true; const p=previewLine.geometry.attributes.position; p.setXYZ(0,spruePts[0].x,spruePts[0].y,spruePts[0].z); p.setXYZ(1,h.point.x,h.point.y,h.point.z); p.needsUpdate=true; previewLine.computeLineDistances(); } }
   else cursorRing.visible=false; });
-function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; }
+function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; dragKind=null; }
 renderer.domElement.addEventListener('pointerup',endPaint);
 renderer.domElement.addEventListener('pointerleave',()=>{cursorRing.visible=false;});
+renderer.domElement.addEventListener('wheel',(ev)=>{
+  if(mode==='sprue' && selectedSprue){ ev.preventDefault(); const u=selectedSprue.userData; const dir=new THREE.Vector3().subVectors(u.p2,u.p1); const len=dir.length()||1e-4; dir.normalize();
+    const nl=Math.max(0.5, len*(ev.deltaY<0?1.1:0.909)); u.p2.copy(u.p1).add(dir.multiplyScalar(nl)); rebuildSprue(selectedSprue); }
+  else if(mode==='parts' && selectedPart){ ev.preventDefault(); const u=selectedPart.userData; u.innerD=Math.max(0.3, u.innerD*(ev.deltaY<0?1.1:0.909)); rebuildPart(selectedPart); setPartUI(u); }
+},{passive:false});
 
-function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ if(op.mesh===selectedSprue) deselectSprue(); op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); } updateStats(); }
+function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ if(op.mesh===selectedSprue) deselectSprue(); op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); }
+  else if(op.type==='part'){ if(op.mesh===selectedPart) deselectPart(); op.mesh.geometry.dispose(); partsGroup.remove(op.mesh); } updateStats(); }
 function resetEdits(){ if(!fullGeom) return; alive.fill(1); aliveCount=triCount; needsRebuild=true; clearSprues(); undoStack.length=0; cancelSprue(); updateStats(); }
 
 function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Array(aliveCount*9); let w=0;
@@ -459,7 +519,8 @@ function sprueDisplacedGeom(mesh, targetMM){ const src=mesh.geometry.attributes.
       out[i+pA]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+pB]+=u*dr*hy+(1-u)*dr*(y/rho); } }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals(); return g; }
 function makeSTL(posSource, targetMM){ const group=new THREE.Group(); group.add(new THREE.Mesh(buildCarvedGeometry(posSource), goldMat));
-  for(const s of spruesGroup.children) group.add(new THREE.Mesh(sprueDisplacedGeom(s,targetMM), sprueMat)); group.updateMatrixWorld(true);
+  for(const s of spruesGroup.children) group.add(new THREE.Mesh(sprueDisplacedGeom(s,targetMM), sprueMat));
+  for(const s of partsGroup.children) group.add(new THREE.Mesh(sprueDisplacedGeom(s,targetMM), ringMat)); group.updateMatrixWorld(true);
   const dv=new STLExporter().parse(group,{binary:true}); group.children.forEach(m=>m.geometry.dispose());
   return new Uint8Array(dv.buffer.slice(dv.byteOffset, dv.byteOffset+dv.byteLength)); }
 function dlBlob(blob,fname){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),6000); }
@@ -562,6 +623,11 @@ $('sprueStraight').addEventListener('click',()=>{ if(selectedSprue) straightenSp
 $('sprueSnap').addEventListener('click',()=>{ if(selectedSprue) snapSprueBase(selectedSprue); });
 $('sprueMode').addEventListener('change',e=>{ sprueMode=e.target.value; $('sprueLenRow').hidden=(sprueMode!=='1p'); updateSprueHint(); cancelSprue(); });
 $('sprueLen').addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)) sprueLen=Math.max(0.5,v); });
+function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($('partInner').value), ti=parseFloat($('partTilt').value), r=parseFloat($('partRot').value);
+  if(isFinite(t)) partThick=Math.max(0.1,t); if(isFinite(i)) partInnerD=Math.max(0.5,i); if(isFinite(ti)) partTilt=ti; if(isFinite(r)) partRot=r;
+  if(selectedPart){ const u=selectedPart.userData; u.thickness=partThick; u.innerD=partInnerD; u.tilt=partTilt; u.rot=partRot; rebuildPart(selectedPart); } }
+['partThick','partInner','partTilt','partRot'].forEach(id=>$(id).addEventListener('input',onPartParam));
+$('partDelBtn').addEventListener('click',deletePart);
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pWidth').addEventListener('input',e=>{ headHalfDeg=parseFloat(e.target.value); $('pwVal').textContent=Math.round(headHalfDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('previewSize').addEventListener('change',e=>setPreview(e.target.value));
@@ -573,9 +639,11 @@ $('btnReset').addEventListener('click',resetEdits);
 $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
-window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); }
-  if((e.key==='Delete'||e.key==='Backspace') && selectedSprue && !/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''))){ e.preventDefault(); deleteSelectedSprue(); } if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
-  if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); });
+window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); }
+  const typing=/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''));
+  if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+  if(!typing){ if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); if(e.key==='5') setMode('parts'); } });
 function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
 window.addEventListener('resize',onResize);
 function animate(){ requestAnimationFrame(animate); if(needsRebuild) rebuildDisplay(); controls.update(); renderer.render(scene,camera); }
