@@ -207,6 +207,7 @@
             <div class="prevmid"><div class="prevsize" id="prevSizeLbl">—</div><div class="mini" id="previewInfo"></div></div>
             <button class="btn icon" id="prevNext" title="Sonraki boy">▶</button>
           </div>
+          <button class="btn block" id="btnAutoplay" style="margin-top:8px">▶ Boyları sırayla oynat</button>
           <button class="btn primary block" id="btnDlOne" style="margin-top:8px">⬇ Bu boyu indir</button>
         </div>
 
@@ -342,6 +343,9 @@ const measMarkB=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); 
 // Parça seçim vurgusu
 const pieceHiMat=new THREE.MeshBasicMaterial({color:0xff6a2c, transparent:true, opacity:0.85, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
 const pieceHighlight=new THREE.Mesh(new THREE.BufferGeometry(), pieceHiMat); pieceHighlight.visible=false; pieceHighlight.renderOrder=6; scene.add(pieceHighlight);
+// İç çap tespit çemberi (boylamada görünür)
+const boreRing=new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0x00c2ff, depthTest:false})); boreRing.visible=false; boreRing.renderOrder=1001; scene.add(boreRing);
+const boreDia=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]), new THREE.LineDashedMaterial({color:0x00c2ff, dashSize:0.8, gapSize:0.5, depthTest:false})); boreDia.visible=false; boreDia.renderOrder=1001; scene.add(boreDia);
 
 let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
 let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null, drawnOrig=null;
@@ -370,7 +374,9 @@ function setMode(m){
   controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
   renderer.domElement.style.cursor = edit ? 'crosshair' : 'grab';
   displayMesh.material = (m==='size') ? sizeMat : goldMat;
-  if(m==='size' && fullGeom) refreshProtectedColors();
+  stopAutoplay();
+  if(m==='size' && fullGeom){ refreshProtectedColors(); showBoreRing(true, innerR); }
+  else showBoreRing(false);
 }
 document.querySelectorAll('.mode').forEach(e=>e.addEventListener('click',()=>setMode(e.dataset.mode)));
 function showLoading(t){ $('loadingTxt').textContent=t||'Yükleniyor…'; $('loading').classList.add('show'); }
@@ -422,6 +428,14 @@ function analyzeRingPure(pos, forceAxis){
 function applyAnalysis(o){ axisIdx=o.axisIdx; pA=o.pA; pB=o.pB; holeC=o.holeC; innerR=o.innerR; currentSizeMM=o.currentSizeMM; headCenterDeg=o.headCenterDeg; headHalfDeg=o.headHalfDeg; }
 function computeVertAng(){ const n=basePos.length/3; vertAng=new Float32Array(n); for(let i=0;i<n;i++) vertAng[i]=Math.atan2(basePos[i*3+pB]-holeC[1], basePos[i*3+pA]-holeC[0]); }
 function angDistDeg(phiRad){ return Math.abs(((phiRad*180/Math.PI - headCenterDeg + 180)%360+360)%360 - 180); }
+function setBoreRing(radius){
+  const seg=120, pts=[]; const axMid=0; // model merkezli, parmak ekseni ortası
+  for(let i=0;i<seg;i++){ const a=i/seg*Math.PI*2, c=[0,0,0]; c[axisIdx]=axMid; c[pA]=holeC[0]+radius*Math.cos(a); c[pB]=holeC[1]+radius*Math.sin(a); pts.push(new THREE.Vector3(c[0],c[1],c[2])); }
+  boreRing.geometry.dispose(); boreRing.geometry=new THREE.BufferGeometry().setFromPoints(pts);
+  const p0=[0,0,0],p1=[0,0,0]; p0[axisIdx]=axMid; p0[pA]=holeC[0]-radius; p0[pB]=holeC[1]; p1[axisIdx]=axMid; p1[pA]=holeC[0]+radius; p1[pB]=holeC[1];
+  const dg=boreDia.geometry.attributes.position; dg.setXYZ(0,p0[0],p0[1],p0[2]); dg.setXYZ(1,p1[0],p1[1],p1[2]); dg.needsUpdate=true; boreDia.computeLineDistances();
+}
+function showBoreRing(on, radius){ boreRing.visible=on; boreDia.visible=on; if(on) setBoreRing(radius!=null?radius:innerR); }
 function refreshProtectedColors(){ if(!colorAttr) return; const n=basePos.length/3, col=colorAttr.array, gold=[0.85,0.70,0.29], blue=[0.04,0.52,1.0];
   for(let i=0;i<n;i++){ const c=(rigidHead && angDistDeg(vertAng[i])<=headHalfDeg)?blue:gold; col[i*3]=c[0]; col[i*3+1]=c[1]; col[i*3+2]=c[2]; } colorAttr.needsUpdate=true; }
 
@@ -435,10 +449,11 @@ function computeDisplaced(targetMM, outArr){
     else { outArr[i*3+pA]+=dr*rx; outArr[i*3+pB]+=dr*ry; } }
 }
 function setPreview(sizeStr){ const sel=$('previewSize'); if(sel.value!==sizeStr) sel.value=sizeStr; if(!fullGeom) return;
-  if(!sizeStr){ if(previewActive){ displayGeom.attributes.position.array.set(basePos); displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=false; } $('previewInfo').textContent=''; return; }
+  if(!sizeStr){ if(previewActive){ displayGeom.attributes.position.array.set(basePos); displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=false; } $('previewInfo').textContent=''; if(mode==='size') showBoreRing(true, innerR); return; }
   const tgt=parseFloat(sizeStr); computeDisplaced(tgt, displayGeom.attributes.position.array);
   displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=true;
   const meas=measureInnerDia(displayGeom.attributes.position.array);
+  showBoreRing(true, tgt/(2*Math.PI));
   $('previewInfo').innerHTML=`Boy <b>${tgt}</b> → hedef iç çap ${(tgt/Math.PI).toFixed(2)} mm · <b style="color:var(--ok)">ölçülen ${meas.toFixed(2)} mm</b> (şu an ${(currentSizeMM/Math.PI).toFixed(2)} mm)`; }
 function measureInnerDia(pos){ // şank iç duvarı min yarıçap (kafa hariç)
   const NS=48, best=new Array(NS).fill(1e9); const n=pos.length/3;
@@ -477,7 +492,7 @@ function loadGeometry(geom, name, isDemo){
   $('stName').textContent=name||(isDemo?'Örnek model':'—');
   $('stDim').textContent=size.x.toFixed(1)+' × '+size.y.toFixed(1)+' × '+size.z.toFixed(1)+' mm'; updateStats();
   $('drop').classList.add('hidden');
-  if(mode==='size') refreshProtectedColors();
+  if(mode==='size'){ refreshProtectedColors(); showBoreRing(true, innerR); }
 }
 function buildPreviewOptions(){ const sel=$('previewSize'); sel.innerHTML='<option value="">— kapalı —</option>'; const base=Math.round(currentSizeMM);
   for(let s=base-6;s<=base+6;s+=2){ const o=document.createElement('option'); o.value=s; o.textContent='Boy '+s; sel.appendChild(o); } }
@@ -773,8 +788,16 @@ let prevList=[], prevIdx=0;
 function startPreviewTour(){ prevList=parseSizes(); if(!prevList.length){ alert('Önce boy seç.'); return; } prevIdx=0; $('prevBox').hidden=false; showPrev(); }
 function showPrev(){ if(!prevList.length) return; const s=prevList[prevIdx]; $('prevSizeLbl').textContent='Boy '+s; setPreview(String(s)); }
 $('btnPreviewStart').addEventListener('click',startPreviewTour);
-$('prevPrev').addEventListener('click',()=>{ if(!prevList.length) return; prevIdx=(prevIdx-1+prevList.length)%prevList.length; showPrev(); });
-$('prevNext').addEventListener('click',()=>{ if(!prevList.length) return; prevIdx=(prevIdx+1)%prevList.length; showPrev(); });
+$('prevPrev').addEventListener('click',()=>{ stopAutoplay(); if(!prevList.length) return; prevIdx=(prevIdx-1+prevList.length)%prevList.length; showPrev(); });
+$('prevNext').addEventListener('click',()=>{ stopAutoplay(); if(!prevList.length) return; prevIdx=(prevIdx+1)%prevList.length; showPrev(); });
+let autoplayTimer=null;
+function stopAutoplay(){ if(autoplayTimer){ clearInterval(autoplayTimer); autoplayTimer=null; const b=$('btnAutoplay'); if(b) b.textContent='▶ Boyları sırayla oynat'; } }
+$('btnAutoplay').addEventListener('click',()=>{
+  if(autoplayTimer){ stopAutoplay(); return; }
+  if(!prevList.length){ prevList=parseSizes(); prevIdx=0; if(!prevList.length){ alert('Önce boy seç.'); return; } $('prevBox').hidden=false; }
+  $('btnAutoplay').textContent='⏸ Durdur'; showPrev();
+  autoplayTimer=setInterval(()=>{ prevIdx=(prevIdx+1)%prevList.length; showPrev(); }, 1100);
+});
 $('btnDlOne').addEventListener('click',()=>{ if(!prevList.length) return; const s=prevList[prevIdx]; showLoading('Boy '+s+' hazırlanıyor…'); setTimeout(()=>{ try{ dl(makeSTL(basePos,s), baseName()+'_boy'+s+'.stl','model/stl'); }catch(e){ alert('Hata: '+e.message);} hideLoading(); },30); });
 $('btnUndo').addEventListener('click',undo);
 $('btnReset').addEventListener('click',resetEdits);
