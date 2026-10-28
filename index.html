@@ -163,6 +163,7 @@
         <label class="chk" id="brushFrontRow"><input type="checkbox" id="brushFront" checked> Sadece ön yüzü sil (ajuru patlatma)</label>
         <div class="hint" id="eraseHint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.</div>
         <div class="mini" id="eraseState" style="margin-top:6px"></div>
+        <button class="btn block" id="pieceDelBtn2" hidden style="margin-top:8px; background:var(--danger); border-color:var(--danger); color:#fff">🗑 Seçili parçayı sil (Del)</button>
       </div>
 
       <!-- Yolluk -->
@@ -338,6 +339,9 @@ measLine.visible=false; measLine.renderOrder=1000; measGroup.add(measLine);
 const measMarkMat=new THREE.MeshBasicMaterial({color:0x0a84ff, depthTest:false});
 const measMarkA=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); measMarkA.visible=false; measMarkA.renderOrder=1000; measGroup.add(measMarkA);
 const measMarkB=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); measMarkB.visible=false; measMarkB.renderOrder=1000; measGroup.add(measMarkB);
+// Parça seçim vurgusu
+const pieceHiMat=new THREE.MeshBasicMaterial({color:0xff6a2c, transparent:true, opacity:0.85, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
+const pieceHighlight=new THREE.Mesh(new THREE.BufferGeometry(), pieceHiMat); pieceHighlight.visible=false; pieceHighlight.renderOrder=6; scene.add(pieceHighlight);
 
 let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
 let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null, drawnOrig=null;
@@ -360,6 +364,7 @@ function setMode(m){
   document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
   cursorRing.visible=false; cancelSprue(); deselectSprue(); deselectPart(); updatePanel();
   if(m!=='measure') clearMeasure();
+  clearPieceSel();
   if(m!=='size'){ setPreview(''); const pb=$('prevBox'); if(pb) pb.hidden=true; }
   const edit=(m==='erase'||m==='sprue'||m==='parts'||m==='measure');
   controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
@@ -505,15 +510,25 @@ function computeComponents(){
   compId=new Int32Array(triCount);
   for(let t=0;t<triCount;t++){ compId[t]=find(fullIndex[t*3]); }
 }
-function deletePieceAt(ev){
+let selectedPieceTris=null;
+function selectPieceAt(ev){
   if(!compId) computeComponents();
-  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return 0;
-  const fi=h[0].faceIndex; if(fi==null) return 0; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return 0;
-  const cid=compId[ti]; const stroke=[]; let killed=0;
-  for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid){ alive[t]=0; aliveCount--; stroke.push(t); killed++; } }
-  if(killed){ undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); }
-  return killed;
+  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return false;
+  const fi=h[0].faceIndex; if(fi==null) return false; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return false;
+  const cid=compId[ti]; const tris=[]; for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid) tris.push(t); }
+  const pos=basePos, out=new Float32Array(tris.length*9); let w=0;
+  for(const t of tris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=pos[vi]; out[w++]=pos[vi+1]; out[w++]=pos[vi+2]; } }
+  pieceHighlight.geometry.dispose(); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); pieceHighlight.geometry=g; pieceHighlight.visible=true;
+  selectedPieceTris=tris;
+  $('eraseState').textContent='Seçili parça (turuncu): '+tris.length.toLocaleString('tr-TR')+' üçgen';
+  $('pieceDelBtn2').hidden=false;
+  return true;
 }
+function clearPieceSel(){ selectedPieceTris=null; pieceHighlight.visible=false; const b=$('pieceDelBtn2'); if(b) b.hidden=true; }
+function deleteSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; const stroke=[];
+  for(const t of selectedPieceTris){ if(alive[t]){ alive[t]=0; aliveCount--; stroke.push(t); } }
+  if(stroke.length) undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); clearPieceSel();
+  $('eraseState').textContent='Parça silindi ✓ ('+stroke.length.toLocaleString('tr-TR')+' üçgen)'; }
 
 let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
 const dragPlane=new THREE.Plane(), _dragPt=new THREE.Vector3(), _dragPrev=new THREE.Vector3(), _camDir=new THREE.Vector3();
@@ -573,7 +588,7 @@ function measureClick(p){
 function clearMeasure(){ measurePts=[]; measLine.visible=false; measMarkA.visible=false; measMarkB.visible=false; $('measVal').textContent='—'; }
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
-  if(mode==='erase'){ if(eraseMode==='piece'){ const k=deletePieceAt(ev); $('eraseState') && ($('eraseState').textContent = k? 'Parça silindi ✓ ('+k.toLocaleString('tr-TR')+' üçgen)':'O noktada parça yok'); return; }
+  if(mode==='erase'){ if(eraseMode==='piece'){ const ok=selectPieceAt(ev); if(!ok){ $('eraseState').textContent='O noktada parça yok — altına tıkla'; } return; }
     painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
   else if(mode==='sprue'){
     pointerToRay(ev); const sh=raycaster.intersectObjects(spruesGroup.children,false);
@@ -767,18 +782,19 @@ $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
 $('brushFront').addEventListener('change',e=>{ eraseFrontOnly=e.target.checked; });
+$('pieceDelBtn2').addEventListener('click',deleteSelectedPiece);
 $('eraseMode').addEventListener('change',e=>{ eraseMode=e.target.value; const piece=eraseMode==='piece';
-  $('brushRow').hidden=piece; $('brushFrontRow').hidden=piece; $('eraseState').textContent='';
-  $('eraseHint').innerHTML = piece ? 'Modelde bir <b>parçaya tıkla</b> (taş, çıkıntı, ayrı parça) → o parçanın tamamı silinir. Döndürmek için sağ tuş. Geri almak için ↶.' : 'Sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.'; });
+  $('brushRow').hidden=piece; $('brushFrontRow').hidden=piece; $('eraseState').textContent=''; clearPieceSel();
+  $('eraseHint').innerHTML = piece ? 'Modelde bir <b>parçaya tıkla</b> → parça <b style="color:#ff6a2c">turuncu</b> seçilir → <b>Del</b> ya da "Sil" ile silersin. Döndürmek için sağ tuş.' : 'Sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.'; });
 async function forceUpdate(){ showLoading('Güncelleniyor…');
   try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
   try{ if('serviceWorker' in navigator){ const r=await navigator.serviceWorker.getRegistration(); if(r) await r.unregister(); } }catch(e){}
   location.reload(); }
 $('btnUpdate').addEventListener('click',forceUpdate);
 $('measClear').addEventListener('click',clearMeasure);
-window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); }
+window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); clearPieceSel(); }
   const typing=/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''));
-  if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
+  if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedPieceTris&&selectedPieceTris.length){ e.preventDefault(); deleteSelectedPiece(); } else if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
   if(!typing){ if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); if(e.key==='5') setMode('parts'); } });
 function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
