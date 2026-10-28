@@ -144,12 +144,25 @@
       <!-- Yolluk -->
       <div class="sec" id="secSprue" hidden>
         <h3>Yolluk / Destek</h3>
+        <div class="row"><label>Yerleştirme</label>
+          <select id="sprueMode" style="width:155px">
+            <option value="2p">İki nokta (serbest)</option>
+            <option value="1p">Tek tık — dik çubuk</option>
+          </select>
+        </div>
         <div class="row"><label>Çubuk çapı</label>
           <span style="display:flex; gap:6px; align-items:center"><input type="number" id="sprueNum" min="0.3" max="8" step="0.1" value="1.5" style="width:66px; text-align:right"><span style="color:var(--muted)">mm</span></span>
         </div>
         <div class="sliderwrap"><input type="range" id="sprue" min="0.3" max="8" step="0.1" value="1.5"></div>
-        <div class="hint"><b>Eklemek:</b> boşluğa iki nokta tıkla (başlangıç + bitiş).<br><b>Taşımak:</b> var olan çubuğa tıkla, basılı tutup sürükle.<br><b>Silmek:</b> çubuğu seç → aşağıdaki düğme ya da <b>Del</b> tuşu.</div>
-        <button class="btn block" id="sprueDelBtn" hidden style="margin-top:10px">🗑 Seçili çubuğu sil</button>
+        <div class="row" id="sprueLenRow" hidden><label>Uzunluk</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="sprueLen" min="0.5" max="60" step="0.5" value="5" style="width:66px; text-align:right"><span style="color:var(--muted)">mm</span></span>
+        </div>
+        <div class="hint" id="sprueHint"><b>İki nokta:</b> boşluğa başlangıç + bitiş tıkla.<br><b>Taşı:</b> çubuğa tıkla, sürükle. <b>Sil:</b> seç → Del.</div>
+        <div id="sprueSelBox" hidden style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
+          <button class="btn block" id="sprueStraight" style="margin:0">⟂ Dikleştir (merkezden dışa)</button>
+          <button class="btn block" id="sprueSnap" style="margin:0">↧ Tabanı yüzeye yapıştır</button>
+          <button class="btn block" id="sprueDelBtn" style="margin:0">🗑 Seçili çubuğu sil</button>
+        </div>
         <div class="mini" id="sprueState">Nokta bekleniyor</div>
       </div>
 
@@ -383,9 +396,10 @@ function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; 
 
 let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
 const dragPlane=new THREE.Plane(), _dragPt=new THREE.Vector3(), _dragPrev=new THREE.Vector3(), _camDir=new THREE.Vector3();
+let sprueMode='2p', sprueLen=5;
 function cancelSprue(){ spruePts=[]; startMark.visible=false; previewLine.visible=false; const s=$('sprueState'); if(s) s.textContent='Nokta bekleniyor'; }
 function setSprueUI(v){ v=Math.max(0.3,Math.min(8,v)); sprueDia=v; const sl=$('sprue'), nu=$('sprueNum'); if(sl) sl.value=v; if(nu) nu.value=v.toFixed(1); }
-function clearSprues(){ [...spruesGroup.children].forEach(m=>{m.geometry.dispose(); spruesGroup.remove(m);}); selectedSprue=null; const b=$('sprueDelBtn'); if(b) b.hidden=true; }
+function clearSprues(){ [...spruesGroup.children].forEach(m=>{m.geometry.dispose(); spruesGroup.remove(m);}); selectedSprue=null; const b=$('sprueSelBox'); if(b) b.hidden=true; }
 function buildSprueGeom(p1,p2,dia){ const dir=new THREE.Vector3().subVectors(p2,p1); const len=dir.length()||1e-4;
   const geo=new THREE.CylinderGeometry(dia/2,dia/2,len,24,1,false);
   const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
@@ -394,9 +408,19 @@ function addSprue(p1,p2,record){ if(p1.distanceTo(p2)<1e-4) return null;
   const mesh=new THREE.Mesh(buildSprueGeom(p1,p2,sprueDia), sprueMat); mesh.userData={p1:p1.clone(),p2:p2.clone(),dia:sprueDia};
   spruesGroup.add(mesh); if(record!==false) undoStack.push({type:'sprue',mesh}); updateStats(); return mesh; }
 function rebuildSprue(m){ const d=m.userData; m.geometry.dispose(); m.geometry=buildSprueGeom(d.p1,d.p2,d.dia); }
-function selectSprue(m){ if(selectedSprue&&selectedSprue!==m) selectedSprue.material=sprueMat; selectedSprue=m; if(m){ m.material=sprueSelMat; setSprueUI(m.userData.dia); } const b=$('sprueDelBtn'); if(b) b.hidden=!m; }
-function deselectSprue(){ if(selectedSprue){ selectedSprue.material=sprueMat; selectedSprue=null; } const b=$('sprueDelBtn'); if(b) b.hidden=true; }
-function deleteSelectedSprue(){ if(!selectedSprue) return; selectedSprue.geometry.dispose(); spruesGroup.remove(selectedSprue); selectedSprue=null; const b=$('sprueDelBtn'); if(b) b.hidden=true; updateStats(); }
+function selectSprue(m){ if(selectedSprue&&selectedSprue!==m) selectedSprue.material=sprueMat; selectedSprue=m; if(m){ m.material=sprueSelMat; setSprueUI(m.userData.dia); } const b=$('sprueSelBox'); if(b) b.hidden=!m; }
+function deselectSprue(){ if(selectedSprue){ selectedSprue.material=sprueMat; selectedSprue=null; } const b=$('sprueSelBox'); if(b) b.hidden=true; }
+function deleteSelectedSprue(){ if(!selectedSprue) return; selectedSprue.geometry.dispose(); spruesGroup.remove(selectedSprue); selectedSprue=null; const b=$('sprueSelBox'); if(b) b.hidden=true; updateStats(); }
+function placePerp(hit){ const p1=hit.point.clone(); let n=(hit.face&&hit.face.normal)?hit.face.normal.clone():p1.clone().normalize();
+  if(n.lengthSq()<1e-9) n.copy(p1).normalize(); if(n.lengthSq()<1e-9) n.set(0,1,0); n.normalize(); if(n.dot(p1)<0) n.negate();
+  const p2=p1.clone().add(n.multiplyScalar(sprueLen)); addSprue(p1,p2,true); }
+function straightenSprue(m){ const u=m.userData; const len=new THREE.Vector3().subVectors(u.p2,u.p1).length()||sprueLen;
+  let dir=u.p1.clone(); if(dir.lengthSq()<1e-9) dir.set(0,1,0); dir.normalize(); u.p2.copy(u.p1).add(dir.multiplyScalar(len)); rebuildSprue(m); }
+function snapSprueBase(m){ if(!fullGeom||!fullGeom.boundsTree) return; const res={}; const hit=fullGeom.boundsTree.closestPointToPoint(m.userData.p1.clone(), res);
+  if(hit&&res.point){ const d=new THREE.Vector3().subVectors(m.userData.p2,m.userData.p1); m.userData.p1.copy(res.point); m.userData.p2.copy(res.point).add(d); rebuildSprue(m); } }
+function updateSprueHint(){ const h=$('sprueHint'); if(!h) return; h.innerHTML = (sprueMode==='1p')
+  ? '<b>Tek tık:</b> yüzeyde bir yere tıkla → o noktadan dışa dik çubuk çıkar (uzunluğu yukarıdan ver).<br><b>Taşı:</b> çubuğa tıkla sürükle. <b>Sil:</b> seç → Del.'
+  : '<b>İki nokta:</b> boşluğa başlangıç + bitiş tıkla.<br><b>Taşı:</b> çubuğa tıkla, sürükle. <b>Sil:</b> seç → Del.'; }
 
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
@@ -407,7 +431,9 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
       camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), sh[0].point); _dragPrev.copy(sh[0].point);
       renderer.domElement.setPointerCapture(ev.pointerId); return; }
     deselectSprue();
-    const h=pickSurface(ev); if(!h) return; spruePts.push(h.point.clone());
+    const h=pickSurface(ev); if(!h) return;
+    if(sprueMode==='1p'){ placePerp(h); $('sprueState').textContent='Dik çubuk eklendi ✓'; return; }
+    spruePts.push(h.point.clone());
     if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
     else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } } });
 renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
@@ -532,6 +558,10 @@ function onSprueDia(v){ v=parseFloat(v); if(!isFinite(v)) return; setSprueUI(v);
 $('sprue').addEventListener('input',e=>onSprueDia(e.target.value));
 $('sprueNum').addEventListener('input',e=>onSprueDia(e.target.value));
 $('sprueDelBtn').addEventListener('click',deleteSelectedSprue);
+$('sprueStraight').addEventListener('click',()=>{ if(selectedSprue) straightenSprue(selectedSprue); });
+$('sprueSnap').addEventListener('click',()=>{ if(selectedSprue) snapSprueBase(selectedSprue); });
+$('sprueMode').addEventListener('change',e=>{ sprueMode=e.target.value; $('sprueLenRow').hidden=(sprueMode!=='1p'); updateSprueHint(); cancelSprue(); });
+$('sprueLen').addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)) sprueLen=Math.max(0.5,v); });
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pWidth').addEventListener('input',e=>{ headHalfDeg=parseFloat(e.target.value); $('pwVal').textContent=Math.round(headHalfDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('previewSize').addEventListener('change',e=>setPreview(e.target.value));
@@ -553,9 +583,7 @@ animate();
 (function demo(){ const g=new THREE.TorusGeometry(9.19,1.2,20,96); g.rotateX(Math.PI/2); loadGeometry(g,null,true); $('stName').textContent='Örnek model (torus)'; setMode('view'); })();
 </script>
 <script>
-if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
-}
+if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
 </script>
 </body>
 </html>
