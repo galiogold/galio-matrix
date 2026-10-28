@@ -75,6 +75,14 @@
   summary::-webkit-details-marker{display:none}
   summary::before{content:"⚙ "; }
   details[open] summary{color:var(--fg)}
+  .minilink{color:var(--accent); font-size:12px; text-decoration:none}
+  .minilink:hover{text-decoration:underline}
+  .chips{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
+  .chip{padding:8px 0; text-align:center; border:1px solid var(--line); border-radius:9px; background:var(--panel2); color:var(--fg); font-size:13px; font-variant-numeric:tabular-nums; cursor:pointer; user-select:none; transition:.1s}
+  .chip:hover{border-color:var(--accent)}
+  .chip.sel{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  .chk{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--fg); margin:6px 0 2px; cursor:pointer}
+  .chk input{width:16px; height:16px; accent-color:var(--accent)}
 
   #drop{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:3}
   #drop .card{text-align:center; color:var(--muted); background:rgba(255,255,255,.75); border:2px dashed var(--line); border-radius:18px; padding:30px 40px; backdrop-filter:blur(3px)}
@@ -104,6 +112,7 @@
       <div class="mode" data-mode="parts">🔗 <span>Parça</span></div>
     </div>
     <div class="spacer"></div>
+    <button class="btn" id="btnUpdate" title="Programın en son sürümünü getir">⟳ Güncelle</button>
     <button class="btn" id="btnRender">📷 Görüntü</button>
     <button class="btn primary" id="btnExport">STL İndir</button>
   </header>
@@ -139,7 +148,8 @@
         <h3>Sil (Fırça)</h3>
         <div class="row"><label>Fırça çapı</label><span class="val" id="brushVal">2.0 mm</span></div>
         <div class="sliderwrap"><input type="range" id="brush" min="0.2" max="12" step="0.1" value="2"></div>
-        <div class="hint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; değdiğin yeri siler. Döndürmek için sağ tuş.</div>
+        <label class="chk"><input type="checkbox" id="brushFront" checked> Sadece ön yüzü sil (ajuru patlatma)</label>
+        <div class="hint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Arkayı silmek için modeli çevir. Döndürmek için sağ tuş.</div>
       </div>
 
       <!-- Yolluk -->
@@ -171,21 +181,27 @@
       <div class="sec" id="secSize" hidden>
         <h3>Boylama</h3>
         <div class="bigwrap"><div class="bignum" id="curSize">—</div><div class="biglbl">bu yüzüğün boyu · iç çap <span id="curDia">—</span></div></div>
-        <div class="row" style="margin-bottom:6px"><label>Hangi boylara çıkaralım?</label></div>
-        <input type="text" id="sizes" value="54, 56, 58, 60, 62" placeholder="örn: 54, 56, 58, 60">
-        <button class="btn primary block" id="btnBatch">💍 Bu yüzüğü boylarıyla indir</button>
+        <div class="row" style="margin-bottom:6px"><label>Hangi boyları istiyorsun?</label>
+          <span style="display:flex; gap:10px"><a href="#" id="sizeAll" class="minilink">Tümü</a><a href="#" id="sizeClear" class="minilink">Temizle</a></span>
+        </div>
+        <div id="sizeChips" class="chips"></div>
+        <div class="mini" id="sizeCount" style="margin:8px 0 2px">Seçili boy: 5</div>
+        <button class="btn primary block" id="btnBatch">💍 Seçili boyları indir</button>
         <button class="btn block" id="btnFolder">📁 Klasör seç → hepsini boyla</button>
         <input type="file" id="folder" webkitdirectory directory multiple class="hidden" hidden>
-        <div class="mini" style="margin-top:12px"><span class="swatch" style="background:var(--accent)"></span>Taşlı bölge korunur, hiç bozulmaz — sadece şank uzar/kısalır.</div>
+        <div class="row"><label>Önizleme (ekranda gör)</label><select id="previewSize" style="width:120px"><option value="">— kapalı —</option></select></div>
+        <div class="mini" id="previewInfo"></div>
+        <div class="mini" style="margin-top:10px">Tüm halka eşit genişler → boy her modelde <b style="color:var(--fg)">tam tutar</b>. Normal boy farklarında taşlar kayda değer bozulmaz.</div>
 
         <details>
           <summary>Gelişmiş ayarlar</summary>
-          <div class="row"><label>Önizleme</label><select id="previewSize" style="width:120px"><option value="">— kapalı —</option></select></div>
-          <div class="mini" id="previewInfo"></div>
-          <div class="row"><label>Korunan bölge yeri</label><span class="val" id="pcVal">0°</span></div>
-          <div class="sliderwrap"><input type="range" id="pCenter" min="-180" max="180" step="1" value="0"></div>
-          <div class="row"><label>Korunan bölge genişliği</label><span class="val" id="pwVal">120°</span></div>
-          <div class="sliderwrap"><input type="range" id="pWidth" min="0" max="180" step="1" value="120"></div>
+          <label class="chk"><input type="checkbox" id="rigidHead"> Taşlı tepeyi rijit tut (büyük boy atlamalarında)</label>
+          <div id="headControls" hidden>
+            <div class="row"><label>Korunan bölge yeri</label><span class="val" id="pcVal">0°</span></div>
+            <div class="sliderwrap"><input type="range" id="pCenter" min="-180" max="180" step="1" value="0"></div>
+            <div class="row"><label>Korunan bölge genişliği</label><span class="val" id="pwVal">60°</span></div>
+            <div class="sliderwrap"><input type="range" id="pWidth" min="0" max="160" step="1" value="60"></div>
+          </div>
           <div class="row"><label>Boyu elle gir</label><input type="number" id="curSizeIn" step="0.5" style="width:90px" placeholder="oto"></div>
           <div class="row"><label>STL birimi</label><select id="unit" style="width:100px"><option value="1">mm</option><option value="10">cm</option><option value="25.4">inç</option></select></div>
           <div class="row"><label>Eklenen çubuk</label><span class="val" id="stSprue">0</span></div>
@@ -252,8 +268,8 @@ THREE.Mesh.prototype.raycast=acceleratedRaycast;
 const $=id=>document.getElementById(id);
 
 const stage=$('stage');
-const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true, logarithmicDepthBuffer:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2.5));
 renderer.setSize(stage.clientWidth, stage.clientHeight);
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
 stage.appendChild(renderer.domElement);
@@ -354,27 +370,37 @@ function analyzeRingPure(pos, forceAxis){
   const thrO=shankOuter+Math.max(0.35,(outer[peak]-shankOuter)*0.18), thrI=inR-0.3;
   const flagged=s=> (outer[((s)%NB+NB)%NB]>thrO)||(inner[((s)%NB+NB)%NB]<thrI);
   let L=0,R=0; while(L<NB/2 && flagged(peak-L-1)) L++; while(R<NB/2 && flagged(peak+R+1)) R++;
-  const hHalf=Math.min(170, Math.max(25,(Math.max(L,R)+8)*2));
+  const hHalf=Math.min(90, Math.max(22,(Math.max(L,R)+5)*1.5));
   return { axisIdx:axis, pA:a, pB:b, holeC:center, innerR:inR, currentSizeMM:2*Math.PI*inR, headCenterDeg:hcDeg, headHalfDeg:hHalf };
 }
 function applyAnalysis(o){ axisIdx=o.axisIdx; pA=o.pA; pB=o.pB; holeC=o.holeC; innerR=o.innerR; currentSizeMM=o.currentSizeMM; headCenterDeg=o.headCenterDeg; headHalfDeg=o.headHalfDeg; }
 function computeVertAng(){ const n=basePos.length/3; vertAng=new Float32Array(n); for(let i=0;i<n;i++) vertAng[i]=Math.atan2(basePos[i*3+pB]-holeC[1], basePos[i*3+pA]-holeC[0]); }
 function angDistDeg(phiRad){ return Math.abs(((phiRad*180/Math.PI - headCenterDeg + 180)%360+360)%360 - 180); }
 function refreshProtectedColors(){ if(!colorAttr) return; const n=basePos.length/3, col=colorAttr.array, gold=[0.85,0.70,0.29], blue=[0.04,0.52,1.0];
-  for(let i=0;i<n;i++){ const c=(angDistDeg(vertAng[i])<=headHalfDeg)?blue:gold; col[i*3]=c[0]; col[i*3+1]=c[1]; col[i*3+2]=c[2]; } colorAttr.needsUpdate=true; }
+  for(let i=0;i<n;i++){ const c=(rigidHead && angDistDeg(vertAng[i])<=headHalfDeg)?blue:gold; col[i*3]=c[0]; col[i*3+1]=c[1]; col[i*3+2]=c[2]; } colorAttr.needsUpdate=true; }
 
+let rigidHead=false;   // varsayılan: eşit genişleme (boyu her modelde tam tutar)
 function computeDisplaced(targetMM, outArr){
   const dr=(targetMM-currentSizeMM)/(2*Math.PI), hc=headCenterDeg*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20, n=basePos.length/3;
   outArr.set(basePos);
   for(let i=0;i<n;i++){ const x=basePos[i*3+pA]-holeC[0], y=basePos[i*3+pB]-holeC[1]; const rho=Math.hypot(x,y)||1e-9, rx=x/rho, ry=y/rho;
-    const ad=angDistDeg(vertAng[i]); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
-    outArr[i*3+pA]+=u*dr*hx+(1-u)*dr*rx; outArr[i*3+pB]+=u*dr*hy+(1-u)*dr*ry; }
+    if(rigidHead){ const ad=angDistDeg(vertAng[i]); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+      outArr[i*3+pA]+=u*dr*hx+(1-u)*dr*rx; outArr[i*3+pB]+=u*dr*hy+(1-u)*dr*ry; }
+    else { outArr[i*3+pA]+=dr*rx; outArr[i*3+pB]+=dr*ry; } }
 }
 function setPreview(sizeStr){ const sel=$('previewSize'); if(sel.value!==sizeStr) sel.value=sizeStr; if(!fullGeom) return;
   if(!sizeStr){ if(previewActive){ displayGeom.attributes.position.array.set(basePos); displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=false; } $('previewInfo').textContent=''; return; }
   const tgt=parseFloat(sizeStr); computeDisplaced(tgt, displayGeom.attributes.position.array);
   displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=true;
-  $('previewInfo').textContent=`Boy ${tgt}: iç çap ${(tgt/Math.PI).toFixed(2)} mm (şu an ${(currentSizeMM/Math.PI).toFixed(2)} mm)`; }
+  const meas=measureInnerDia(displayGeom.attributes.position.array);
+  $('previewInfo').innerHTML=`Boy <b>${tgt}</b> → hedef iç çap ${(tgt/Math.PI).toFixed(2)} mm · <b style="color:var(--ok)">ölçülen ${meas.toFixed(2)} mm</b> (şu an ${(currentSizeMM/Math.PI).toFixed(2)} mm)`; }
+function measureInnerDia(pos){ // şank iç duvarı min yarıçap (kafa hariç)
+  const NS=48, best=new Array(NS).fill(1e9); const n=pos.length/3;
+  for(let i=0;i<n;i++){ const x=pos[i*3+pA]-holeC[0], y=pos[i*3+pB]-holeC[1]; const d=Math.hypot(x,y);
+    const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-headCenterDeg+180)%360+360)%360-180); if(rigidHead && ad<headHalfDeg+25) continue;
+    let s=Math.floor((Math.atan2(y,x)+Math.PI)/(2*Math.PI)*NS); if(s<0)s=0; if(s>=NS)s=NS-1; if(d<best[s]) best[s]=d; }
+  const vals=best.filter(v=>v<1e8).sort((a,b)=>a-b); if(!vals.length) return 0;
+  return 2*vals[Math.floor(vals.length*0.15)]; }
 
 function loadGeometry(geom, name, isDemo){
   geom.deleteAttribute('normal'); geom.deleteAttribute('uv');
@@ -416,10 +442,15 @@ const raycaster=new THREE.Raycaster(); raycaster.firstHitOnly=true; const pointe
 function updateBrushVisual(){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(brushRadius*0.92,brushRadius,48); startMark.scale.setScalar(Math.max(brushRadius*0.25, modelRadius*0.012)); }
 function pointerToRay(ev){ const r=renderer.domElement.getBoundingClientRect(); pointer.x=((ev.clientX-r.left)/r.width)*2-1; pointer.y=-((ev.clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(pointer,camera); }
 function pickSurface(ev){ if(!fullGeom) return null; pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); return h.length?h[0]:null; }
-const _cp=new THREE.Vector3(); let currentStroke=[];
+const _cp=new THREE.Vector3(), _e1=new THREE.Vector3(), _e2=new THREE.Vector3(), _fn=new THREE.Vector3(); let currentStroke=[];
+let eraseFrontOnly=true;
 function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, r2=r*r;
+  camera.getWorldDirection(_camDir);
   fullGeom.boundsTree.shapecast({ intersectsBounds:(box)=> box.distanceToPoint(center)<=r?INTERSECTED:NOT_INTERSECTED,
-    intersectsTriangle:(tri,ti)=>{ if(alive[ti]){ tri.closestPointToPoint(center,_cp); if(_cp.distanceToSquared(center)<=r2){ alive[ti]=0; aliveCount--; currentStroke.push(ti); } } return false; } }); needsRebuild=true; }
+    intersectsTriangle:(tri,ti)=>{ if(!alive[ti]) return false; tri.closestPointToPoint(center,_cp); if(_cp.distanceToSquared(center)>r2) return false;
+      if(eraseFrontOnly){ _e1.subVectors(tri.b,tri.a); _e2.subVectors(tri.c,tri.a); _fn.crossVectors(_e1,_e2);
+        if(_fn.dot(_camDir)>0){ return false; } }   // kameraya ters bakan (arka) yüzleri atlama
+      alive[ti]=0; aliveCount--; currentStroke.push(ti); return false; } }); needsRebuild=true; }
 function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
 
 let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
@@ -515,8 +546,9 @@ function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Arr
 function sprueDisplacedGeom(mesh, targetMM){ const src=mesh.geometry.attributes.position.array, out=Float32Array.from(src);
   if(targetMM!=null){ const dr=(targetMM-currentSizeMM)/(2*Math.PI), hc=headCenterDeg*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20;
     for(let i=0;i<out.length;i+=3){ const x=src[i+pA]-holeC[0], y=src[i+pB]-holeC[1]; const rho=Math.hypot(x,y)||1e-9;
-      const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-headCenterDeg+180)%360+360)%360-180); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
-      out[i+pA]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+pB]+=u*dr*hy+(1-u)*dr*(y/rho); } }
+      if(rigidHead){ const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-headCenterDeg+180)%360+360)%360-180); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+        out[i+pA]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+pB]+=u*dr*hy+(1-u)*dr*(y/rho); }
+      else { out[i+pA]+=dr*(x/rho); out[i+pB]+=dr*(y/rho); } } }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals(); return g; }
 function makeSTL(posSource, targetMM){ const group=new THREE.Group(); group.add(new THREE.Mesh(buildCarvedGeometry(posSource), goldMat));
   for(const s of spruesGroup.children) group.add(new THREE.Mesh(sprueDisplacedGeom(s,targetMM), sprueMat));
@@ -526,7 +558,14 @@ function makeSTL(posSource, targetMM){ const group=new THREE.Group(); group.add(
 function dlBlob(blob,fname){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),6000); }
 function dl(bytes,fname,mime){ dlBlob(new Blob([bytes],{type:mime||'application/octet-stream'}),fname); }
 function baseName(){ return ((($('stName').textContent||'model').replace(/\.stl$/i,'').replace(/[^\w\-çğıöşüÇĞİÖŞÜ ]/g,'').trim()))||'model'; }
-function parseSizes(){ return ($('sizes').value.match(/[\d]+(\.\d+)?/g)||[]).map(Number).filter(v=>v>20&&v<120); }
+const SIZE_MIN=44, SIZE_MAX=72;
+function buildSizeChips(){ const box=$('sizeChips'); if(!box) return; box.innerHTML='';
+  const def=new Set([54,56,58,60,62]);
+  for(let s=SIZE_MIN;s<=SIZE_MAX;s++){ const c=document.createElement('div'); c.className='chip'+(def.has(s)?' sel':''); c.textContent=s; c.dataset.size=s;
+    c.addEventListener('click',()=>{ c.classList.toggle('sel'); updateSizeCount(); }); box.appendChild(c); }
+  updateSizeCount(); }
+function updateSizeCount(){ const el=$('sizeCount'); if(el) el.textContent='Seçili boy: '+document.querySelectorAll('#sizeChips .chip.sel').length; }
+function parseSizes(){ return [...document.querySelectorAll('#sizeChips .chip.sel')].map(c=>+c.dataset.size).sort((a,b)=>a-b); }
 function exportSTL(){ if(!fullGeom) return; showLoading('STL hazırlanıyor…'); setTimeout(()=>{ try{ dl(makeSTL(basePos,null), baseName()+'_duzenlenmis.stl','model/stl'); }catch(e){ alert('Hata: '+e.message);} hideLoading(); },30); }
 function batchSizes(){ if(!fullGeom) return; const cur=parseFloat($('curSizeIn').value); if(isFinite(cur)&&cur>0) currentSizeMM=cur;
   const list=parseSizes(); if(!list.length){ alert('Lütfen boy(lar) gir, örn: 54, 56, 58'); return; }
@@ -537,8 +576,9 @@ function deformExportRaw(pos, prm, targetMM){
   const {pA:a,pB:b,holeC:hC,currentSizeMM:cs,headCenterDeg:hcd,headHalfDeg:hh}=prm;
   const dr=(targetMM-cs)/(2*Math.PI), hc=hcd*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20, out=Float32Array.from(pos);
   for(let i=0;i<out.length;i+=3){ const x=pos[i+a]-hC[0], y=pos[i+b]-hC[1]; const rho=Math.hypot(x,y)||1e-9;
-    const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-hcd+180)%360+360)%360-180); let u=(hh+trans-ad)/trans; u=u<0?0:(u>1?1:u);
-    out[i+a]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+b]+=u*dr*hy+(1-u)*dr*(y/rho); }
+    if(rigidHead){ const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-hcd+180)%360+360)%360-180); let u=(hh+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+      out[i+a]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+b]+=u*dr*hy+(1-u)*dr*(y/rho); }
+    else { out[i+a]+=dr*(x/rho); out[i+b]+=dr*(y/rho); } }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals();
   const m=new THREE.Mesh(g,goldMat); m.updateMatrixWorld(true); const dv=new STLExporter().parse(m,{binary:true}); g.dispose();
   return new Uint8Array(dv.buffer.slice(dv.byteOffset,dv.byteOffset+dv.byteLength)); }
@@ -600,7 +640,7 @@ async function load3dm(buffer, name){
   }catch(e){ hideLoading(); alert('.3dm çevrilemedi: '+((e&&e.message)||e)); }
 }
 function loadFromBuffer(buffer, name){ const geom=stlLoader.parse(buffer); if(unitScale!==1) geom.scale(unitScale,unitScale,unitScale); loadGeometry(geom,name,false); }
-function handleFile(file){ if(!file) return; const is3dm=/\.3dm$/i.test(file.name), isStl=/\.stl$/i.test(file.name);
+function handleFile(file){ if(!file) return; $('drop').classList.add('hidden'); const is3dm=/\.3dm$/i.test(file.name), isStl=/\.stl$/i.test(file.name);
   if(!is3dm && !isStl){ alert('Lütfen .stl veya .3dm dosyası seç.'); return; }
   showLoading('“'+file.name+'” okunuyor…'); const r=new FileReader();
   r.onload=e=>{ try{ if(is3dm){ load3dm(e.target.result, file.name); } else { lastSTL={buffer:e.target.result.slice(0), name:file.name}; loadFromBuffer(e.target.result, file.name); hideLoading(); } }catch(err){ alert('Dosya okunamadı: '+err.message); hideLoading(); } };
@@ -628,17 +668,27 @@ function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($
   if(selectedPart){ const u=selectedPart.userData; u.thickness=partThick; u.innerD=partInnerD; u.tilt=partTilt; u.rot=partRot; rebuildPart(selectedPart); } }
 ['partThick','partInner','partTilt','partRot'].forEach(id=>$(id).addEventListener('input',onPartParam));
 $('partDelBtn').addEventListener('click',deletePart);
+$('rigidHead').addEventListener('change',e=>{ rigidHead=e.target.checked; $('headControls').hidden=!rigidHead; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pWidth').addEventListener('input',e=>{ headHalfDeg=parseFloat(e.target.value); $('pwVal').textContent=Math.round(headHalfDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('previewSize').addEventListener('change',e=>setPreview(e.target.value));
 $('curSizeIn').addEventListener('change',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)&&v>0){ currentSizeMM=v; $('curSize').textContent=v.toFixed(0); $('curDia').textContent=(v/Math.PI).toFixed(2)+' mm'; buildPreviewOptions(); if(previewActive) setPreview($('previewSize').value); } });
 $('unit').addEventListener('change',e=>{ unitScale=parseFloat(e.target.value)||1; if(lastSTL){ showLoading('Birim uygulanıyor…'); setTimeout(()=>{ loadFromBuffer(lastSTL.buffer, lastSTL.name); hideLoading(); },20); } });
 $('btnBatch').addEventListener('click',batchSizes);
+$('sizeAll').addEventListener('click',e=>{ e.preventDefault(); document.querySelectorAll('#sizeChips .chip').forEach(c=>c.classList.add('sel')); updateSizeCount(); });
+$('sizeClear').addEventListener('click',e=>{ e.preventDefault(); document.querySelectorAll('#sizeChips .chip').forEach(c=>c.classList.remove('sel')); updateSizeCount(); });
+buildSizeChips();
 $('btnUndo').addEventListener('click',undo);
 $('btnReset').addEventListener('click',resetEdits);
 $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
+$('brushFront').addEventListener('change',e=>{ eraseFrontOnly=e.target.checked; });
+async function forceUpdate(){ showLoading('Güncelleniyor…');
+  try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+  try{ if('serviceWorker' in navigator){ const r=await navigator.serviceWorker.getRegistration(); if(r) await r.unregister(); } }catch(e){}
+  location.reload(); }
+$('btnUpdate').addEventListener('click',forceUpdate);
 window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); }
   const typing=/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''));
   if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
