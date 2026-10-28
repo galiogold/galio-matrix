@@ -83,6 +83,10 @@
   .chip.sel{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
   .chk{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--fg); margin:6px 0 2px; cursor:pointer}
   .chk input{width:16px; height:16px; accent-color:var(--accent)}
+  .prevbox{margin-top:12px; padding:12px; border:1px solid var(--accent); border-radius:12px; background:var(--panel2)}
+  .prevnav{display:flex; align-items:center; gap:10px}
+  .prevmid{flex:1; text-align:center}
+  .prevsize{font-size:24px; font-weight:800; color:var(--ok); font-variant-numeric:tabular-nums; line-height:1}
 
   #drop{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:3}
   #drop .card{text-align:center; color:var(--muted); background:rgba(255,255,255,.75); border:2px dashed var(--line); border-radius:18px; padding:30px 40px; backdrop-filter:blur(3px)}
@@ -111,6 +115,7 @@
       <div class="mode" data-mode="sprue">📍 <span>Yolluk</span></div>
       <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
       <div class="mode" data-mode="parts">🔗 <span>Parça</span></div>
+      <div class="mode" data-mode="measure">📏 <span>Ölç</span></div>
     </div>
     <div class="spacer"></div>
     <button class="btn" id="btnUpdate" title="Programın en son sürümünü getir">⟳ Güncelle</button>
@@ -193,13 +198,23 @@
           <span style="display:flex; gap:10px"><a href="#" id="sizeAll" class="minilink">Tümü</a><a href="#" id="sizeClear" class="minilink">Temizle</a></span>
         </div>
         <div id="sizeChips" class="chips"></div>
-        <div class="mini" id="sizeCount" style="margin:8px 0 2px">Seçili boy: 5</div>
-        <button class="btn primary block" id="btnBatch">💍 Seçili boyları indir</button>
+        <div class="mini" id="sizeCount" style="margin:8px 0 2px">Seçili boy: 4</div>
+
+        <div class="prevbox" id="prevBox" hidden>
+          <div class="prevnav">
+            <button class="btn icon" id="prevPrev" title="Önceki boy">◀</button>
+            <div class="prevmid"><div class="prevsize" id="prevSizeLbl">—</div><div class="mini" id="previewInfo"></div></div>
+            <button class="btn icon" id="prevNext" title="Sonraki boy">▶</button>
+          </div>
+          <button class="btn primary block" id="btnDlOne" style="margin-top:8px">⬇ Bu boyu indir</button>
+        </div>
+
+        <button class="btn block" id="btnPreviewStart" style="margin-top:10px">👁 Seçili boyları tek tek canlı gör</button>
+        <button class="btn primary block" id="btnBatch" style="margin-top:8px">💍 Seçili boyları toplu indir (ZIP)</button>
         <button class="btn block" id="btnFolder">📁 Klasör seç → hepsini boyla</button>
         <input type="file" id="folder" webkitdirectory directory multiple class="hidden" hidden>
-        <div class="row"><label>Önizleme (ekranda gör)</label><select id="previewSize" style="width:120px"><option value="">— kapalı —</option></select></div>
-        <div class="mini" id="previewInfo"></div>
-        <div class="mini" style="margin-top:10px">Tüm halka eşit genişler → boy her modelde <b style="color:var(--fg)">tam tutar</b>. Normal boy farklarında taşlar kayda değer bozulmaz.</div>
+        <select id="previewSize" class="hidden" hidden><option value="">—</option></select>
+        <div class="mini" style="margin-top:10px">Canlı görünümde model seçtiğin boya döner, ölçülen iç çapı yazar. Beğendiğini "Bu boyu indir" ile tek tek alırsın.</div>
 
         <details>
           <summary>Gelişmiş ayarlar</summary>
@@ -237,6 +252,14 @@
         <div class="hint" id="partHint"><b>Eklemek:</b> modelde halkanın gelmesini istediğin yere tıkla.<br><b>Büyüt/küçült:</b> seçiliyken fare <b>tekerleği</b>, ya da yukarıdan iç çapı yaz.<br><b>Taşı:</b> tıkla sürükle. <b>Sil:</b> seç → Del.</div>
         <button class="btn block" id="partDelBtn" hidden style="margin-top:10px">🗑 Seçili parçayı sil</button>
         <div class="mini" id="partState">Eklemek için modele tıkla</div>
+      </div>
+
+      <!-- Ölçü -->
+      <div class="sec" id="secMeasure" hidden>
+        <h3>Ölçü</h3>
+        <div class="bigwrap"><div class="bignum" id="measVal" style="color:var(--accent)">—</div><div class="biglbl">iki nokta arası · mm</div></div>
+        <div class="hint">Modelde <b>iki nokta</b> tıkla; arasındaki mesafeyi mm verir.<br><b>İç çap</b> için deliğin karşılıklı iki iç kenarına tıkla. Döndürmek için sağ tuş.</div>
+        <button class="btn block" id="measClear" style="margin-top:10px">Temizle</button>
       </div>
     </aside>
 
@@ -308,6 +331,13 @@ const startMark=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), new THREE.Mesh
 startMark.visible=false; startMark.renderOrder=999; scene.add(startMark);
 const previewLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]), new THREE.LineDashedMaterial({color:0x0a84ff, dashSize:1.2, gapSize:0.8, depthTest:false}));
 previewLine.visible=false; previewLine.renderOrder=999; scene.add(previewLine);
+// Ölçü nesneleri
+const measGroup=new THREE.Group(); scene.add(measGroup);
+const measLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]), new THREE.LineBasicMaterial({color:0x0a84ff, depthTest:false, linewidth:2}));
+measLine.visible=false; measLine.renderOrder=1000; measGroup.add(measLine);
+const measMarkMat=new THREE.MeshBasicMaterial({color:0x0a84ff, depthTest:false});
+const measMarkA=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); measMarkA.visible=false; measMarkA.renderOrder=1000; measGroup.add(measMarkA);
+const measMarkB=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); measMarkB.visible=false; measMarkB.renderOrder=1000; measGroup.add(measMarkB);
 
 let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
 let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null, drawnOrig=null;
@@ -323,13 +353,15 @@ function updatePanel(){
   $('secSprue').hidden = mode!=='sprue';
   $('secSize').hidden = mode!=='size';
   $('secParts').hidden = mode!=='parts';
+  $('secMeasure').hidden = mode!=='measure';
 }
 function setMode(m){
   mode=m;
   document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
   cursorRing.visible=false; cancelSprue(); deselectSprue(); deselectPart(); updatePanel();
-  if(m!=='size') setPreview('');
-  const edit=(m==='erase'||m==='sprue'||m==='parts');
+  if(m!=='measure') clearMeasure();
+  if(m!=='size'){ setPreview(''); const pb=$('prevBox'); if(pb) pb.hidden=true; }
+  const edit=(m==='erase'||m==='sprue'||m==='parts'||m==='measure');
   controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
   renderer.domElement.style.cursor = edit ? 'crosshair' : 'grab';
   displayMesh.material = (m==='size') ? sizeMat : goldMat;
@@ -528,6 +560,17 @@ function selectPart(m){ if(selectedPart&&selectedPart!==m) selectedPart.material
 function deselectPart(){ if(selectedPart){ selectedPart.material=ringMat; selectedPart=null; } controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; }
 function deletePart(){ if(!selectedPart) return; selectedPart.geometry.dispose(); partsGroup.remove(selectedPart); selectedPart=null; controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; updateStats(); }
 
+let measurePts=[];
+function measureMarkScale(){ return Math.max(0.25, modelRadius*0.012); }
+function measureClick(p){
+  if(measurePts.length>=2){ measurePts=[]; measLine.visible=false; measMarkB.visible=false; }
+  measurePts.push(p);
+  if(measurePts.length===1){ measMarkA.position.copy(p); measMarkA.scale.setScalar(measureMarkScale()); measMarkA.visible=true; measMarkB.visible=false; measLine.visible=false; $('measVal').textContent='…'; }
+  else{ measMarkB.position.copy(p); measMarkB.scale.setScalar(measureMarkScale()); measMarkB.visible=true;
+    const g=measLine.geometry.attributes.position; g.setXYZ(0,measurePts[0].x,measurePts[0].y,measurePts[0].z); g.setXYZ(1,p.x,p.y,p.z); g.needsUpdate=true; measLine.visible=true;
+    $('measVal').textContent=measurePts[0].distanceTo(p).toFixed(2); }
+}
+function clearMeasure(){ measurePts=[]; measLine.visible=false; measMarkA.visible=false; measMarkB.visible=false; $('measVal').textContent='—'; }
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
   if(mode==='erase'){ if(eraseMode==='piece'){ const k=deletePieceAt(ev); $('eraseState') && ($('eraseState').textContent = k? 'Parça silindi ✓ ('+k.toLocaleString('tr-TR')+' üçgen)':'O noktada parça yok'); return; }
@@ -543,6 +586,7 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
     spruePts.push(h.point.clone());
     if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
     else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } }
+  else if(mode==='measure'){ const h=pickSurface(ev); if(!h) return; measureClick(h.point.clone()); return; }
   else if(mode==='parts'){
     pointerToRay(ev); const ph=raycaster.intersectObjects(partsGroup.children,false);
     if(ph.length){ selectPart(ph[0].object); dragging=ph[0].object; dragKind='part';
@@ -709,6 +753,14 @@ $('btnBatch').addEventListener('click',batchSizes);
 $('sizeAll').addEventListener('click',e=>{ e.preventDefault(); document.querySelectorAll('#sizeChips .chip').forEach(c=>c.classList.add('sel')); updateSizeCount(); });
 $('sizeClear').addEventListener('click',e=>{ e.preventDefault(); document.querySelectorAll('#sizeChips .chip').forEach(c=>c.classList.remove('sel')); updateSizeCount(); });
 buildSizeChips();
+// Canlı önizleme (ileri/geri) + tek boy indir
+let prevList=[], prevIdx=0;
+function startPreviewTour(){ prevList=parseSizes(); if(!prevList.length){ alert('Önce boy seç.'); return; } prevIdx=0; $('prevBox').hidden=false; showPrev(); }
+function showPrev(){ if(!prevList.length) return; const s=prevList[prevIdx]; $('prevSizeLbl').textContent='Boy '+s; setPreview(String(s)); }
+$('btnPreviewStart').addEventListener('click',startPreviewTour);
+$('prevPrev').addEventListener('click',()=>{ if(!prevList.length) return; prevIdx=(prevIdx-1+prevList.length)%prevList.length; showPrev(); });
+$('prevNext').addEventListener('click',()=>{ if(!prevList.length) return; prevIdx=(prevIdx+1)%prevList.length; showPrev(); });
+$('btnDlOne').addEventListener('click',()=>{ if(!prevList.length) return; const s=prevList[prevIdx]; showLoading('Boy '+s+' hazırlanıyor…'); setTimeout(()=>{ try{ dl(makeSTL(basePos,s), baseName()+'_boy'+s+'.stl','model/stl'); }catch(e){ alert('Hata: '+e.message);} hideLoading(); },30); });
 $('btnUndo').addEventListener('click',undo);
 $('btnReset').addEventListener('click',resetEdits);
 $('btnFit').addEventListener('click',fitView);
@@ -723,6 +775,7 @@ async function forceUpdate(){ showLoading('Güncelleniyor…');
   try{ if('serviceWorker' in navigator){ const r=await navigator.serviceWorker.getRegistration(); if(r) await r.unregister(); } }catch(e){}
   location.reload(); }
 $('btnUpdate').addEventListener('click',forceUpdate);
+$('measClear').addEventListener('click',clearMeasure);
 window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); }
   const typing=/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''));
   if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
