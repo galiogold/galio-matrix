@@ -144,9 +144,12 @@
       <!-- Yolluk -->
       <div class="sec" id="secSprue" hidden>
         <h3>Yolluk / Destek</h3>
-        <div class="row"><label>Çubuk çapı</label><span class="val" id="sprueVal">1.5 mm</span></div>
+        <div class="row"><label>Çubuk çapı</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="sprueNum" min="0.3" max="8" step="0.1" value="1.5" style="width:66px; text-align:right"><span style="color:var(--muted)">mm</span></span>
+        </div>
         <div class="sliderwrap"><input type="range" id="sprue" min="0.3" max="8" step="0.1" value="1.5"></div>
-        <div class="hint"><b>İki nokta</b> tıkla: başlangıç ve bitiş. Arasına çubuk eklenir.</div>
+        <div class="hint"><b>Eklemek:</b> boşluğa iki nokta tıkla (başlangıç + bitiş).<br><b>Taşımak:</b> var olan çubuğa tıkla, basılı tutup sürükle.<br><b>Silmek:</b> çubuğu seç → aşağıdaki düğme ya da <b>Del</b> tuşu.</div>
+        <button class="btn block" id="sprueDelBtn" hidden style="margin-top:10px">🗑 Seçili çubuğu sil</button>
         <div class="mini" id="sprueState">Nokta bekleniyor</div>
       </div>
 
@@ -231,6 +234,7 @@ let grid=new THREE.GridHelper(100,20,0xcfd4db,0xe1e4ea); grid.material.transpare
 const goldMat=new THREE.MeshStandardMaterial({color:0xd9b24a, metalness:0.9, roughness:0.3, side:THREE.DoubleSide});
 const sizeMat=new THREE.MeshStandardMaterial({vertexColors:true, color:0xffffff, metalness:0.75, roughness:0.35, side:THREE.DoubleSide});
 const sprueMat=new THREE.MeshStandardMaterial({color:0x0a84ff, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
+const sprueSelMat=new THREE.MeshStandardMaterial({color:0xff9f0a, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
 const displayMesh=new THREE.Mesh(new THREE.BufferGeometry(), goldMat); scene.add(displayMesh);
 const spruesGroup=new THREE.Group(); scene.add(spruesGroup);
 const cursorRing=new THREE.Mesh(new THREE.RingGeometry(0.9,1,48), new THREE.MeshBasicMaterial({color:0xff453a, side:THREE.DoubleSide, transparent:true, opacity:0.95, depthTest:false}));
@@ -257,7 +261,7 @@ function updatePanel(){
 function setMode(m){
   mode=m;
   document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
-  cursorRing.visible=false; cancelSprue(); updatePanel();
+  cursorRing.visible=false; cancelSprue(); deselectSprue(); updatePanel();
   if(m!=='size') setPreview('');
   const edit=(m==='erase'||m==='sprue');
   controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
@@ -358,7 +362,7 @@ function loadGeometry(geom, name, isDemo){
   buildPreviewOptions(); fitView(); updateBrushVisual();
   $('stName').textContent=name||(isDemo?'Örnek model':'—');
   $('stDim').textContent=size.x.toFixed(1)+' × '+size.y.toFixed(1)+' × '+size.z.toFixed(1)+' mm'; updateStats();
-  $('drop').classList.add('hidden'); if(isDemo) $('drop').classList.remove('hidden');
+  $('drop').classList.add('hidden');
   if(mode==='size') refreshProtectedColors();
 }
 function buildPreviewOptions(){ const sel=$('previewSize'); sel.innerHTML='<option value="">— kapalı —</option>'; const base=Math.round(currentSizeMM);
@@ -377,30 +381,46 @@ function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, 
     intersectsTriangle:(tri,ti)=>{ if(alive[ti]){ tri.closestPointToPoint(center,_cp); if(_cp.distanceToSquared(center)<=r2){ alive[ti]=0; aliveCount--; currentStroke.push(ti); } } return false; } }); needsRebuild=true; }
 function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
 
-let spruePts=[], sprueDia=1.5;
+let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
+const dragPlane=new THREE.Plane(), _dragPt=new THREE.Vector3(), _dragPrev=new THREE.Vector3(), _camDir=new THREE.Vector3();
 function cancelSprue(){ spruePts=[]; startMark.visible=false; previewLine.visible=false; const s=$('sprueState'); if(s) s.textContent='Nokta bekleniyor'; }
-function clearSprues(){ [...spruesGroup.children].forEach(m=>{m.geometry.dispose(); spruesGroup.remove(m);}); }
-function addSprue(p1,p2,record){ const dir=new THREE.Vector3().subVectors(p2,p1); const len=dir.length(); if(len<1e-4) return null;
-  const geo=new THREE.CylinderGeometry(sprueDia/2,sprueDia/2,len,20,1,false);
+function setSprueUI(v){ v=Math.max(0.3,Math.min(8,v)); sprueDia=v; const sl=$('sprue'), nu=$('sprueNum'); if(sl) sl.value=v; if(nu) nu.value=v.toFixed(1); }
+function clearSprues(){ [...spruesGroup.children].forEach(m=>{m.geometry.dispose(); spruesGroup.remove(m);}); selectedSprue=null; const b=$('sprueDelBtn'); if(b) b.hidden=true; }
+function buildSprueGeom(p1,p2,dia){ const dir=new THREE.Vector3().subVectors(p2,p1); const len=dir.length()||1e-4;
+  const geo=new THREE.CylinderGeometry(dia/2,dia/2,len,24,1,false);
   const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
-  const mid=new THREE.Vector3().addVectors(p1,p2).multiplyScalar(0.5); geo.applyMatrix4(new THREE.Matrix4().compose(mid,q,new THREE.Vector3(1,1,1)));
-  const mesh=new THREE.Mesh(geo,sprueMat); spruesGroup.add(mesh); if(record!==false) undoStack.push({type:'sprue',mesh}); updateStats(); return mesh; }
+  const mid=new THREE.Vector3().addVectors(p1,p2).multiplyScalar(0.5); geo.applyMatrix4(new THREE.Matrix4().compose(mid,q,new THREE.Vector3(1,1,1))); return geo; }
+function addSprue(p1,p2,record){ if(p1.distanceTo(p2)<1e-4) return null;
+  const mesh=new THREE.Mesh(buildSprueGeom(p1,p2,sprueDia), sprueMat); mesh.userData={p1:p1.clone(),p2:p2.clone(),dia:sprueDia};
+  spruesGroup.add(mesh); if(record!==false) undoStack.push({type:'sprue',mesh}); updateStats(); return mesh; }
+function rebuildSprue(m){ const d=m.userData; m.geometry.dispose(); m.geometry=buildSprueGeom(d.p1,d.p2,d.dia); }
+function selectSprue(m){ if(selectedSprue&&selectedSprue!==m) selectedSprue.material=sprueMat; selectedSprue=m; if(m){ m.material=sprueSelMat; setSprueUI(m.userData.dia); } const b=$('sprueDelBtn'); if(b) b.hidden=!m; }
+function deselectSprue(){ if(selectedSprue){ selectedSprue.material=sprueMat; selectedSprue=null; } const b=$('sprueDelBtn'); if(b) b.hidden=true; }
+function deleteSelectedSprue(){ if(!selectedSprue) return; selectedSprue.geometry.dispose(); spruesGroup.remove(selectedSprue); selectedSprue=null; const b=$('sprueDelBtn'); if(b) b.hidden=true; updateStats(); }
 
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
   if(mode==='erase'){ painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
-  else if(mode==='sprue'){ const h=pickSurface(ev); if(!h) return; spruePts.push(h.point.clone());
+  else if(mode==='sprue'){
+    pointerToRay(ev); const sh=raycaster.intersectObjects(spruesGroup.children,false);
+    if(sh.length){ selectSprue(sh[0].object); dragging=sh[0].object; cancelSprue();
+      camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), sh[0].point); _dragPrev.copy(sh[0].point);
+      renderer.domElement.setPointerCapture(ev.pointerId); return; }
+    deselectSprue();
+    const h=pickSurface(ev); if(!h) return; spruePts.push(h.point.clone());
     if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
     else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } } });
 renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
+  if(dragging){ pointerToRay(ev); if(raycaster.ray.intersectPlane(dragPlane,_dragPt)){ const u=dragging.userData, dx=_dragPt.x-_dragPrev.x, dy=_dragPt.y-_dragPrev.y, dz=_dragPt.z-_dragPrev.z;
+      u.p1.x+=dx;u.p1.y+=dy;u.p1.z+=dz; u.p2.x+=dx;u.p2.y+=dy;u.p2.z+=dz; rebuildSprue(dragging); _dragPrev.copy(_dragPt); } return; }
   if(mode==='erase'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(painting&&(ev.buttons&1)&&h) eraseAt(h.point); }
   else if(mode==='sprue'&&spruePts.length===1){ const h=pickSurface(ev); if(h){ previewLine.visible=true; const p=previewLine.geometry.attributes.position; p.setXYZ(0,spruePts[0].x,spruePts[0].y,spruePts[0].z); p.setXYZ(1,h.point.x,h.point.y,h.point.z); p.needsUpdate=true; previewLine.computeLineDistances(); } }
   else cursorRing.visible=false; });
-function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } }
+function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; }
 renderer.domElement.addEventListener('pointerup',endPaint);
 renderer.domElement.addEventListener('pointerleave',()=>{cursorRing.visible=false;});
 
-function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); } updateStats(); }
+function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ if(op.mesh===selectedSprue) deselectSprue(); op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); } updateStats(); }
 function resetEdits(){ if(!fullGeom) return; alive.fill(1); aliveCount=triCount; needsRebuild=true; clearSprues(); undoStack.length=0; cancelSprue(); updateStats(); }
 
 function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Array(aliveCount*9); let w=0;
@@ -508,7 +528,10 @@ window.addEventListener('dragleave',e=>{ if(e.clientX===0&&e.clientY===0){ dropE
 window.addEventListener('drop',e=>{ e.preventDefault(); dropEl.classList.remove('show-drag'); if(fullGeom) dropEl.classList.add('hidden'); const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
 
 $('brush').addEventListener('input',e=>{ brushRadius=parseFloat(e.target.value); $('brushVal').textContent=brushRadius.toFixed(1)+' mm'; updateBrushVisual(); });
-$('sprue').addEventListener('input',e=>{ sprueDia=parseFloat(e.target.value); $('sprueVal').textContent=sprueDia.toFixed(1)+' mm'; });
+function onSprueDia(v){ v=parseFloat(v); if(!isFinite(v)) return; setSprueUI(v); if(selectedSprue){ selectedSprue.userData.dia=sprueDia; rebuildSprue(selectedSprue); } }
+$('sprue').addEventListener('input',e=>onSprueDia(e.target.value));
+$('sprueNum').addEventListener('input',e=>onSprueDia(e.target.value));
+$('sprueDelBtn').addEventListener('click',deleteSelectedSprue);
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pWidth').addEventListener('input',e=>{ headHalfDeg=parseFloat(e.target.value); $('pwVal').textContent=Math.round(headHalfDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('previewSize').addEventListener('change',e=>setPreview(e.target.value));
@@ -520,7 +543,8 @@ $('btnReset').addEventListener('click',resetEdits);
 $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
-window.addEventListener('keydown',e=>{ if(e.key==='Escape') cancelSprue(); if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); }
+  if((e.key==='Delete'||e.key==='Backspace') && selectedSprue && !/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''))){ e.preventDefault(); deleteSelectedSprue(); } if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
   if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); });
 function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
 window.addEventListener('resize',onResize);
