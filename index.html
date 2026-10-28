@@ -148,9 +148,16 @@
       <div class="sec" id="secBrush" hidden>
         <h3>Sil (Fırça)</h3>
         <div class="row"><label>Fırça çapı</label><span class="val" id="brushVal">2.0 mm</span></div>
-        <div class="sliderwrap"><input type="range" id="brush" min="0.2" max="12" step="0.1" value="2"></div>
-        <label class="chk"><input type="checkbox" id="brushFront" checked> Sadece ön yüzü sil (ajuru patlatma)</label>
-        <div class="hint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Arkayı silmek için modeli çevir. Döndürmek için sağ tuş.</div>
+        <div class="row"><label>Silme şekli</label>
+          <select id="eraseMode" style="width:165px">
+            <option value="brush">Fırça (sürükle)</option>
+            <option value="piece">Tek tık — bağlı parça</option>
+          </select>
+        </div>
+        <div class="sliderwrap" id="brushRow"><input type="range" id="brush" min="0.2" max="12" step="0.1" value="2"></div>
+        <label class="chk" id="brushFrontRow"><input type="checkbox" id="brushFront" checked> Sadece ön yüzü sil (ajuru patlatma)</label>
+        <div class="hint" id="eraseHint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.</div>
+        <div class="mini" id="eraseState" style="margin-top:6px"></div>
       </div>
 
       <!-- Yolluk -->
@@ -290,6 +297,7 @@ const sizeMat=new THREE.MeshStandardMaterial({vertexColors:true, color:0xffffff,
 const sprueMat=new THREE.MeshStandardMaterial({color:0x0a84ff, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
 const sprueSelMat=new THREE.MeshStandardMaterial({color:0xff9f0a, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
 const displayMesh=new THREE.Mesh(new THREE.BufferGeometry(), goldMat); scene.add(displayMesh);
+const queryMesh=new THREE.Mesh(new THREE.BufferGeometry(), goldMat); queryMesh.visible=false; scene.add(queryMesh);
 const spruesGroup=new THREE.Group(); scene.add(spruesGroup);
 const partsGroup=new THREE.Group(); scene.add(partsGroup);
 const ringMat=new THREE.MeshStandardMaterial({color:0xd9b24a, metalness:0.9, roughness:0.3, side:THREE.DoubleSide});
@@ -419,9 +427,9 @@ function loadGeometry(geom, name, isDemo){
   displayGeom.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(fullGeom.attributes.normal.array),3));
   colorAttr=new THREE.BufferAttribute(new Float32Array(basePos.length).fill(0.8),3); displayGeom.setAttribute('color', colorAttr);
   displayGeom.setIndex(new THREE.BufferAttribute(renderIndexBuffer,1)); displayGeom.setDrawRange(0, fullIndex.length);
-  displayMesh.geometry=displayGeom;
+  displayMesh.geometry=displayGeom; queryMesh.geometry=fullGeom;
   const size=new THREE.Vector3(); fullGeom.boundingBox.getSize(size); modelRadius=fullGeom.boundingSphere.radius;
-  clearSprues(); clearParts(); undoStack.length=0; previewActive=false;
+  clearSprues(); clearParts(); undoStack.length=0; previewActive=false; compId=null;
   scene.remove(grid); grid=new THREE.GridHelper(Math.max(modelRadius*3,10),20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.6; grid.position.y=fullGeom.boundingBox.min.y; scene.add(grid);
   applyAnalysis(analyzeRingPure(basePos,null)); computeVertAng();
   $('curSize').textContent=currentSizeMM.toFixed(0); $('curDia').textContent=(2*innerR).toFixed(2)+' mm'; $('curSizeIn').value='';
@@ -444,7 +452,7 @@ function updateBrushVisual(){ cursorRing.geometry.dispose(); cursorRing.geometry
 function pointerToRay(ev){ const r=renderer.domElement.getBoundingClientRect(); pointer.x=((ev.clientX-r.left)/r.width)*2-1; pointer.y=-((ev.clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(pointer,camera); }
 function pickSurface(ev){ if(!fullGeom) return null; pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); return h.length?h[0]:null; }
 const _cp=new THREE.Vector3(), _e1=new THREE.Vector3(), _e2=new THREE.Vector3(), _fn=new THREE.Vector3(); let currentStroke=[];
-let eraseFrontOnly=true;
+let eraseFrontOnly=true, eraseMode='brush';
 function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, r2=r*r;
   camera.getWorldDirection(_camDir);
   fullGeom.boundsTree.shapecast({ intersectsBounds:(box)=> box.distanceToPoint(center)<=r?INTERSECTED:NOT_INTERSECTED,
@@ -453,6 +461,26 @@ function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, 
         if(_fn.dot(_camDir)>0){ return false; } }   // kameraya ters bakan (arka) yüzleri atlama
       alive[ti]=0; aliveCount--; currentStroke.push(ti); return false; } }); needsRebuild=true; }
 function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
+
+// Bağlı parça (component) tespiti — kenar paylaşan üçgenler
+let compId=null;
+function computeComponents(){
+  const nv=fullGeom.attributes.position.count; const parent=new Int32Array(nv); for(let i=0;i<nv;i++) parent[i]=i;
+  const find=(x)=>{ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; };
+  const uni=(x,y)=>{ const rx=find(x),ry=find(y); if(rx!==ry) parent[rx]=ry; };
+  for(let t=0;t<triCount;t++){ const b=t*3, a0=fullIndex[b],a1=fullIndex[b+1],a2=fullIndex[b+2]; uni(a0,a1); uni(a1,a2); }
+  compId=new Int32Array(triCount);
+  for(let t=0;t<triCount;t++){ compId[t]=find(fullIndex[t*3]); }
+}
+function deletePieceAt(ev){
+  if(!compId) computeComponents();
+  pointerToRay(ev); const h=raycaster.intersectObject(queryMesh,false); if(!h.length) return 0;
+  const ti=h[0].faceIndex; if(ti==null || ti>=triCount || !alive[ti]) return 0;
+  const cid=compId[ti]; const stroke=[]; let killed=0;
+  for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid){ alive[t]=0; aliveCount--; stroke.push(t); killed++; } }
+  if(killed){ undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); }
+  return killed;
+}
 
 let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
 const dragPlane=new THREE.Plane(), _dragPt=new THREE.Vector3(), _dragPrev=new THREE.Vector3(), _camDir=new THREE.Vector3();
@@ -501,7 +529,8 @@ function deletePart(){ if(!selectedPart) return; selectedPart.geometry.dispose()
 
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
-  if(mode==='erase'){ painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
+  if(mode==='erase'){ if(eraseMode==='piece'){ const k=deletePieceAt(ev); $('eraseState') && ($('eraseState').textContent = k? 'Parça silindi ✓ ('+k.toLocaleString('tr-TR')+' üçgen)':'O noktada parça yok'); return; }
+    painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
   else if(mode==='sprue'){
     pointerToRay(ev); const sh=raycaster.intersectObjects(spruesGroup.children,false);
     if(sh.length){ selectSprue(sh[0].object); dragging=sh[0].object; dragKind='sprue'; cancelSprue();
@@ -685,6 +714,9 @@ $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
 $('brushFront').addEventListener('change',e=>{ eraseFrontOnly=e.target.checked; });
+$('eraseMode').addEventListener('change',e=>{ eraseMode=e.target.value; const piece=eraseMode==='piece';
+  $('brushRow').hidden=piece; $('brushFrontRow').hidden=piece; $('eraseState').textContent='';
+  $('eraseHint').innerHTML = piece ? 'Modelde bir <b>parçaya tıkla</b> (taş, çıkıntı, ayrı parça) → o parçanın tamamı silinir. Döndürmek için sağ tuş. Geri almak için ↶.' : 'Sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.'; });
 async function forceUpdate(){ showLoading('Güncelleniyor…');
   try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
   try{ if('serviceWorker' in navigator){ const r=await navigator.serviceWorker.getRegistration(); if(r) await r.unregister(); } }catch(e){}
