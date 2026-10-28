@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GALIO STL — Yolluk & Boylama</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a84ff">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{
+    --bg:#f2f3f5; --panel:#ffffff; --panel2:#f5f6f8; --line:#e4e6ea;
+    --fg:#1d1d1f; --muted:#6e6e73; --accent:#0a84ff; --ok:#28b463; --danger:#ff453a; --gold:#b8860b;
+    --shadow:0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
+    --radius:14px; font-synthesis:none;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Roboto,Arial,sans-serif;
+    font-size:14px; overflow:hidden; -webkit-user-select:none; user-select:none; -webkit-font-smoothing:antialiased;}
+  #app{display:flex; flex-direction:column; height:100%}
+
+  header{display:flex; align-items:center; gap:14px; padding:12px 18px; background:var(--panel); border-bottom:1px solid var(--line); z-index:5;}
+  .brand{display:flex; align-items:baseline; gap:8px}
+  .brand b{font-size:17px; font-weight:700; letter-spacing:-.2px}
+  .brand span{font-size:12px; color:var(--muted)}
+
+  .seg{display:flex; gap:3px; background:var(--panel2); padding:3px; border-radius:11px; border:1px solid var(--line); margin:0 auto}
+  .seg .mode{display:flex; align-items:center; gap:7px; padding:8px 15px; border-radius:8px; cursor:pointer; color:var(--muted); font-size:13.5px; font-weight:500; transition:.15s}
+  .seg .mode:hover{color:var(--fg)}
+  .seg .mode.active{background:var(--panel); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.08); font-weight:600}
+
+  .btn{display:inline-flex; align-items:center; gap:7px; background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+    padding:9px 15px; border-radius:10px; cursor:pointer; font-size:13.5px; font-weight:500; transition:.15s; white-space:nowrap}
+  .btn:hover{background:#eceef1}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  .btn.primary:hover{background:#0074e8}
+  .btn.icon{padding:9px 11px; font-size:15px}
+  .btn:disabled{opacity:.4; cursor:not-allowed}
+  .spacer{flex:1}
+
+  main{flex:1; position:relative; min-height:0}
+  #stage{position:absolute; inset:0}
+  canvas{display:block; touch-action:none}
+
+  aside{position:absolute; top:16px; right:16px; width:296px; max-width:calc(100% - 32px); max-height:calc(100% - 32px); overflow-y:auto;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); z-index:4}
+  .phead{padding:15px 18px 12px; border-bottom:1px solid var(--line)}
+  .pname{font-size:12px; color:var(--muted); margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .pdim{font-size:12.5px; color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums}
+  .sec{padding:16px 18px; border-bottom:1px solid var(--line)}
+  .sec:last-child{border-bottom:none}
+  .sec h3{margin:0 0 14px; font-size:15px; font-weight:700; letter-spacing:-.2px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:12px; margin:12px 0}
+  .row label{color:var(--muted); font-size:13px}
+  .val{font-variant-numeric:tabular-nums; color:var(--fg); font-weight:600}
+  .val.ok{color:var(--ok)}
+  input[type=range]{width:100%; accent-color:var(--accent); cursor:pointer; margin:3px 0 0; height:4px}
+  input[type=text], input[type=number], select{background:var(--panel); border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:10px 12px; font-size:14px; width:100%; font-family:inherit}
+  input:focus,select:focus{outline:none; border-color:var(--accent)}
+  .sliderwrap{margin:6px 0 2px}
+  .hint{color:var(--muted); font-size:12.5px; line-height:1.6; margin-top:10px}
+  .hint b{color:var(--fg); font-weight:600}
+  .tag{display:inline-block; font-size:11px; padding:3px 9px; border-radius:20px; background:var(--panel2); border:1px solid var(--line); color:var(--muted)}
+  .swatch{display:inline-block; width:11px;height:11px;border-radius:3px;vertical-align:middle;margin-right:6px}
+  .mini{font-size:12px; color:var(--muted); margin-top:6px}
+  .bignum{font-size:38px; font-weight:800; color:var(--ok); font-variant-numeric:tabular-nums; letter-spacing:-1px; line-height:1}
+  .bigwrap{text-align:center; padding:6px 0 10px}
+  .biglbl{font-size:12px; color:var(--muted); margin-top:5px}
+  .btn.block{width:100%; justify-content:center; margin-top:10px; padding:12px}
+  details{margin-top:14px; border-top:1px solid var(--line); padding-top:12px}
+  summary{cursor:pointer; font-size:13px; color:var(--muted); font-weight:500; list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"⚙ "; }
+  details[open] summary{color:var(--fg)}
+
+  #drop{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:3}
+  #drop .card{text-align:center; color:var(--muted); background:rgba(255,255,255,.75); border:2px dashed var(--line); border-radius:18px; padding:30px 40px; backdrop-filter:blur(3px)}
+  #drop.show-drag .card{border-color:var(--accent); color:var(--fg)}
+  #drop .big{font-size:16px; color:var(--fg); font-weight:600; margin-bottom:5px}
+  #loading{position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(242,243,245,.72); z-index:9; color:var(--fg); backdrop-filter:blur(3px)}
+  #loading.show{display:flex}
+  .spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;margin-right:12px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.spin{animation:none}}
+  footer{position:absolute; left:16px; bottom:16px; z-index:4; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:9px 14px; font-size:12px; color:var(--muted); box-shadow:var(--shadow); max-width:min(380px, calc(100% - 32px))}
+  .toolbar{position:absolute; left:16px; top:16px; z-index:4; display:flex; gap:6px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px; box-shadow:var(--shadow)}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><b>GALIO STL</b><span>Yolluk &amp; Boylama</span></div>
+    <button class="btn primary" id="btnOpen">Model Yükle</button>
+    <input type="file" id="file" accept=".stl,.3dm" class="hidden" hidden>
+    <div class="seg" role="group" aria-label="Çalışma modu">
+      <div class="mode active" data-mode="view">🔄 <span>Döndür</span></div>
+      <div class="mode" data-mode="erase">🩹 <span>Sil</span></div>
+      <div class="mode" data-mode="sprue">📍 <span>Yolluk</span></div>
+      <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="btnRender">📷 Görüntü</button>
+    <button class="btn primary" id="btnExport">STL İndir</button>
+  </header>
+
+  <main>
+    <div id="stage"></div>
+
+    <div class="toolbar">
+      <button class="btn icon" id="btnUndo" title="Geri al (Ctrl+Z)">↶</button>
+      <button class="btn icon" id="btnReset" title="Düzenlemeleri temizle">⟲</button>
+      <button class="btn icon" id="btnFit" title="Görünümü ortala">🎯</button>
+    </div>
+
+    <aside>
+      <div class="phead">
+        <div class="pname" id="stName">—</div>
+        <div class="pdim" id="stDim">—</div>
+        <span id="axisTag" hidden></span><span id="stTri" hidden></span>
+      </div>
+
+      <!-- Döndür -->
+      <div class="sec" id="secView">
+        <h3>Model</h3>
+        <div class="hint">Soldaki düğmelerden işini seç:<br>
+        <b>🩹 Sil</b> — fırçayla istediğin yeri sil.<br>
+        <b>📍 Yolluk</b> — istediğin yere çubuk ekle.<br>
+        <b>💍 Boylama</b> — yüzüğü istediğin boylara çıkar.<br><span style="opacity:.8">Rhino <b>.3dm</b> dosyaları otomatik STL'ye çevrilir.</span></div>
+        <div class="hint" style="margin-top:12px"><b>Döndür:</b> sol sürükle &nbsp;·&nbsp; <b>Kaydır:</b> sağ &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek</div>
+      </div>
+
+      <!-- Sil -->
+      <div class="sec" id="secBrush" hidden>
+        <h3>Sil (Fırça)</h3>
+        <div class="row"><label>Fırça çapı</label><span class="val" id="brushVal">2.0 mm</span></div>
+        <div class="sliderwrap"><input type="range" id="brush" min="0.2" max="12" step="0.1" value="2"></div>
+        <div class="hint">Model üstünde sol tuşa basılı tutup <b>fırça gibi</b> gezdir; değdiğin yeri siler. Döndürmek için sağ tuş.</div>
+      </div>
+
+      <!-- Yolluk -->
+      <div class="sec" id="secSprue" hidden>
+        <h3>Yolluk / Destek</h3>
+        <div class="row"><label>Çubuk çapı</label><span class="val" id="sprueVal">1.5 mm</span></div>
+        <div class="sliderwrap"><input type="range" id="sprue" min="0.3" max="8" step="0.1" value="1.5"></div>
+        <div class="hint"><b>İki nokta</b> tıkla: başlangıç ve bitiş. Arasına çubuk eklenir.</div>
+        <div class="mini" id="sprueState">Nokta bekleniyor</div>
+      </div>
+
+      <!-- Boylama -->
+      <div class="sec" id="secSize" hidden>
+        <h3>Boylama</h3>
+        <div class="bigwrap"><div class="bignum" id="curSize">—</div><div class="biglbl">bu yüzüğün boyu · iç çap <span id="curDia">—</span></div></div>
+        <div class="row" style="margin-bottom:6px"><label>Hangi boylara çıkaralım?</label></div>
+        <input type="text" id="sizes" value="54, 56, 58, 60, 62" placeholder="örn: 54, 56, 58, 60">
+        <button class="btn primary block" id="btnBatch">💍 Bu yüzüğü boylarıyla indir</button>
+        <button class="btn block" id="btnFolder">📁 Klasör seç → hepsini boyla</button>
+        <input type="file" id="folder" webkitdirectory directory multiple class="hidden" hidden>
+        <div class="mini" style="margin-top:12px"><span class="swatch" style="background:var(--accent)"></span>Taşlı bölge korunur, hiç bozulmaz — sadece şank uzar/kısalır.</div>
+
+        <details>
+          <summary>Gelişmiş ayarlar</summary>
+          <div class="row"><label>Önizleme</label><select id="previewSize" style="width:120px"><option value="">— kapalı —</option></select></div>
+          <div class="mini" id="previewInfo"></div>
+          <div class="row"><label>Korunan bölge yeri</label><span class="val" id="pcVal">0°</span></div>
+          <div class="sliderwrap"><input type="range" id="pCenter" min="-180" max="180" step="1" value="0"></div>
+          <div class="row"><label>Korunan bölge genişliği</label><span class="val" id="pwVal">120°</span></div>
+          <div class="sliderwrap"><input type="range" id="pWidth" min="0" max="180" step="1" value="120"></div>
+          <div class="row"><label>Boyu elle gir</label><input type="number" id="curSizeIn" step="0.5" style="width:90px" placeholder="oto"></div>
+          <div class="row"><label>STL birimi</label><select id="unit" style="width:100px"><option value="1">mm</option><option value="10">cm</option><option value="25.4">inç</option></select></div>
+          <div class="row"><label>Eklenen çubuk</label><span class="val" id="stSprue">0</span></div>
+        </details>
+      </div>
+    </aside>
+
+    <div id="drop"><div class="card">
+      <div class="big">STL veya 3DM dosyanı buraya sürükle</div>
+      <div>ya da üstteki <b>Model Yükle</b> düğmesine bas</div>
+      <div style="margin-top:10px;font-size:12px;opacity:.75">Şu an örnek bir model yüklü.</div>
+    </div></div>
+    <div id="loading"><div class="spin"></div><span id="loadingTxt">Model hazırlanıyor…</span></div>
+    <footer>Dosyan tamamen kendi bilgisayarında işlenir, hiçbir yere gönderilmez.</footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fflate/0.8.2/umd/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/rhino3dm.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.3/build/index.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast, INTERSECTED, NOT_INTERSECTED } from 'three-mesh-bvh';
+THREE.BufferGeometry.prototype.computeBoundsTree=computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree=disposeBoundsTree;
+THREE.Mesh.prototype.raycast=acceleratedRaycast;
+const $=id=>document.getElementById(id);
+
+const stage=$('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(stage.clientWidth, stage.clientHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
+stage.appendChild(renderer.domElement);
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xeef0f3);
+const camera=new THREE.PerspectiveCamera(45, stage.clientWidth/stage.clientHeight, 0.1, 5000);
+camera.position.set(40,30,55);
+const controls=new OrbitControls(camera, renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=0.08;
+const pmrem=new THREE.PMREMGenerator(renderer);
+scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+scene.add(new THREE.HemisphereLight(0xffffff,0xdfe3ea,0.75));
+const dir1=new THREE.DirectionalLight(0xffffff,1.25); dir1.position.set(1,1.6,1.2); scene.add(dir1);
+const dir2=new THREE.DirectionalLight(0xeef2ff,0.45); dir2.position.set(-1.2,0.6,-1); scene.add(dir2);
+let grid=new THREE.GridHelper(100,20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.7; scene.add(grid);
+const goldMat=new THREE.MeshStandardMaterial({color:0xd9b24a, metalness:0.9, roughness:0.3, side:THREE.DoubleSide});
+const sizeMat=new THREE.MeshStandardMaterial({vertexColors:true, color:0xffffff, metalness:0.75, roughness:0.35, side:THREE.DoubleSide});
+const sprueMat=new THREE.MeshStandardMaterial({color:0x0a84ff, metalness:0.3, roughness:0.45, side:THREE.DoubleSide});
+const displayMesh=new THREE.Mesh(new THREE.BufferGeometry(), goldMat); scene.add(displayMesh);
+const spruesGroup=new THREE.Group(); scene.add(spruesGroup);
+const cursorRing=new THREE.Mesh(new THREE.RingGeometry(0.9,1,48), new THREE.MeshBasicMaterial({color:0xff453a, side:THREE.DoubleSide, transparent:true, opacity:0.95, depthTest:false}));
+cursorRing.visible=false; cursorRing.renderOrder=999; scene.add(cursorRing);
+const startMark=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), new THREE.MeshBasicMaterial({color:0x0a84ff, depthTest:false}));
+startMark.visible=false; startMark.renderOrder=999; scene.add(startMark);
+const previewLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]), new THREE.LineDashedMaterial({color:0x0a84ff, dashSize:1.2, gapSize:0.8, depthTest:false}));
+previewLine.visible=false; previewLine.renderOrder=999; scene.add(previewLine);
+
+let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
+let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null;
+let modelRadius=20, needsRebuild=false;
+const undoStack=[];
+let axisIdx=1,pA=0,pB=2, holeC=[0,0], innerR=9, currentSizeMM=58, headCenterDeg=0, headHalfDeg=120;
+let vertAng=null, previewActive=false, unitScale=1, lastSTL=null;
+
+let mode='view';
+function updatePanel(){
+  $('secView').hidden = mode!=='view';
+  $('secBrush').hidden = mode!=='erase';
+  $('secSprue').hidden = mode!=='sprue';
+  $('secSize').hidden = mode!=='size';
+}
+function setMode(m){
+  mode=m;
+  document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
+  cursorRing.visible=false; cancelSprue(); updatePanel();
+  if(m!=='size') setPreview('');
+  const edit=(m==='erase'||m==='sprue');
+  controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
+  renderer.domElement.style.cursor = edit ? 'crosshair' : 'grab';
+  displayMesh.material = (m==='size') ? sizeMat : goldMat;
+  if(m==='size' && fullGeom) refreshProtectedColors();
+}
+document.querySelectorAll('.mode').forEach(e=>e.addEventListener('click',()=>setMode(e.dataset.mode)));
+function showLoading(t){ $('loadingTxt').textContent=t||'Yükleniyor…'; $('loading').classList.add('show'); }
+function hideLoading(){ $('loading').classList.remove('show'); }
+
+function solve3(A,b){ const m=[[A[0][0],A[0][1],A[0][2],b[0]],[A[1][0],A[1][1],A[1][2],b[1]],[A[2][0],A[2][1],A[2][2],b[2]]];
+  for(let i=0;i<3;i++){ let p=i; for(let r=i+1;r<3;r++) if(Math.abs(m[r][i])>Math.abs(m[p][i])) p=r; [m[i],m[p]]=[m[p],m[i]];
+    const d=m[i][i]||1e-12; for(let r=0;r<3;r++){ if(r===i) continue; const f=m[r][i]/d; for(let c=i;c<4;c++) m[r][c]-=f*m[i][c]; } }
+  return [m[0][3]/(m[0][0]||1e-12), m[1][3]/(m[1][1]||1e-12), m[2][3]/(m[2][2]||1e-12)]; }
+function median(arr){ if(!arr.length) return 0; const a=arr.slice().sort((x,y)=>x-y); return a[Math.floor(a.length/2)]; }
+
+function analyzeRingPure(pos, forceAxis){
+  const step=Math.max(1, Math.floor((pos.length/3)/40000));
+  const mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+  for(let i=0;i<pos.length;i+=3){ for(let k=0;k<3;k++){ const v=pos[i+k]; if(v<mn[k])mn[k]=v; if(v>mx[k])mx[k]=v; } }
+  const cc=[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2];
+  let axis=1, bestGap=-1; const axesTest=(forceAxis!=null)?[forceAxis]:[0,1,2];
+  for(const ax of axesTest){ const a=(ax+1)%3, b=(ax+2)%3; let minr=1e9;
+    for(let i=0;i<pos.length;i+=3*step){ const dr=Math.hypot(pos[i+a]-cc[a], pos[i+b]-cc[b]); if(dr<minr) minr=dr; }
+    if(minr>bestGap){ bestGap=minr; axis=ax; } }
+  const a=(axis+1)%3, b=(axis+2)%3; let center=[cc[a],cc[b]], inR=0;
+  for(let iter=0; iter<6; iter++){
+    const NS=72, bestD=new Array(NS).fill(1e9), bx=new Array(NS).fill(0), by=new Array(NS).fill(0);
+    for(let i=0;i<pos.length;i+=3*step){ const dx=pos[i+a]-center[0], dy=pos[i+b]-center[1]; const d=Math.hypot(dx,dy); if(d<1e-6) continue;
+      let s=Math.floor((Math.atan2(dy,dx)+Math.PI)/(2*Math.PI)*NS); if(s<0)s=0; if(s>=NS)s=NS-1; if(d<bestD[s]){ bestD[s]=d; bx[s]=pos[i+a]; by[s]=pos[i+b]; } }
+    const P=[]; for(let s=0;s<NS;s++) if(bestD[s]<1e8) P.push([bx[s],by[s]]);
+    let Sxx=0,Sxy=0,Syy=0,Sx=0,Sy=0,Sxz=0,Syz=0,Sz=0,N=P.length;
+    for(const [x,y] of P){ const z=x*x+y*y; Sxx+=x*x;Sxy+=x*y;Syy+=y*y;Sx+=x;Sy+=y;Sxz+=x*z;Syz+=y*z;Sz+=z; }
+    const sol=solve3([[Sxx,Sxy,Sx],[Sxy,Syy,Sy],[Sx,Sy,N]],[Sxz,Syz,Sz]);
+    const cx=sol[0]/2, cy=sol[1]/2, r=Math.sqrt(Math.max(0,sol[2]+cx*cx+cy*cy));
+    const P2=P.filter(([x,y])=>Math.abs(Math.hypot(x-cx,y-cy)-r)<Math.max(0.6, r*0.15));
+    if(P2.length>8){ Sxx=Sxy=Syy=Sx=Sy=Sxz=Syz=Sz=0; N=P2.length;
+      for(const [x,y] of P2){ const z=x*x+y*y; Sxx+=x*x;Sxy+=x*y;Syy+=y*y;Sx+=x;Sy+=y;Sxz+=x*z;Syz+=y*z;Sz+=z; }
+      const s2=solve3([[Sxx,Sxy,Sx],[Sxy,Syy,Sy],[Sx,Sy,N]],[Sxz,Syz,Sz]); center=[s2[0]/2,s2[1]/2]; inR=Math.sqrt(Math.max(0,s2[2]+center[0]*center[0]+center[1]*center[1]));
+    } else { center=[cx,cy]; inR=r; }
+  }
+  const NB=180, outer=new Float32Array(NB).fill(0), inner=new Float32Array(NB).fill(1e9);
+  for(let i=0;i<pos.length;i+=3*step){ const dx=pos[i+a]-center[0], dy=pos[i+b]-center[1]; const d=Math.hypot(dx,dy);
+    let s=Math.floor((Math.atan2(dy,dx)+Math.PI)/(2*Math.PI)*NB); if(s<0)s=0; if(s>=NB)s=NB-1; if(d>outer[s]) outer[s]=d; if(d<inner[s]) inner[s]=d; }
+  const shankOuter=median(Array.from(outer).filter(v=>v>0));
+  let peak=0; for(let s=1;s<NB;s++) if(outer[s]>outer[peak]) peak=s;
+  const hcDeg=(peak/NB)*360-180;
+  const thrO=shankOuter+Math.max(0.35,(outer[peak]-shankOuter)*0.18), thrI=inR-0.3;
+  const flagged=s=> (outer[((s)%NB+NB)%NB]>thrO)||(inner[((s)%NB+NB)%NB]<thrI);
+  let L=0,R=0; while(L<NB/2 && flagged(peak-L-1)) L++; while(R<NB/2 && flagged(peak+R+1)) R++;
+  const hHalf=Math.min(170, Math.max(25,(Math.max(L,R)+8)*2));
+  return { axisIdx:axis, pA:a, pB:b, holeC:center, innerR:inR, currentSizeMM:2*Math.PI*inR, headCenterDeg:hcDeg, headHalfDeg:hHalf };
+}
+function applyAnalysis(o){ axisIdx=o.axisIdx; pA=o.pA; pB=o.pB; holeC=o.holeC; innerR=o.innerR; currentSizeMM=o.currentSizeMM; headCenterDeg=o.headCenterDeg; headHalfDeg=o.headHalfDeg; }
+function computeVertAng(){ const n=basePos.length/3; vertAng=new Float32Array(n); for(let i=0;i<n;i++) vertAng[i]=Math.atan2(basePos[i*3+pB]-holeC[1], basePos[i*3+pA]-holeC[0]); }
+function angDistDeg(phiRad){ return Math.abs(((phiRad*180/Math.PI - headCenterDeg + 180)%360+360)%360 - 180); }
+function refreshProtectedColors(){ if(!colorAttr) return; const n=basePos.length/3, col=colorAttr.array, gold=[0.85,0.70,0.29], blue=[0.04,0.52,1.0];
+  for(let i=0;i<n;i++){ const c=(angDistDeg(vertAng[i])<=headHalfDeg)?blue:gold; col[i*3]=c[0]; col[i*3+1]=c[1]; col[i*3+2]=c[2]; } colorAttr.needsUpdate=true; }
+
+function computeDisplaced(targetMM, outArr){
+  const dr=(targetMM-currentSizeMM)/(2*Math.PI), hc=headCenterDeg*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20, n=basePos.length/3;
+  outArr.set(basePos);
+  for(let i=0;i<n;i++){ const x=basePos[i*3+pA]-holeC[0], y=basePos[i*3+pB]-holeC[1]; const rho=Math.hypot(x,y)||1e-9, rx=x/rho, ry=y/rho;
+    const ad=angDistDeg(vertAng[i]); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+    outArr[i*3+pA]+=u*dr*hx+(1-u)*dr*rx; outArr[i*3+pB]+=u*dr*hy+(1-u)*dr*ry; }
+}
+function setPreview(sizeStr){ const sel=$('previewSize'); if(sel.value!==sizeStr) sel.value=sizeStr; if(!fullGeom) return;
+  if(!sizeStr){ if(previewActive){ displayGeom.attributes.position.array.set(basePos); displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=false; } $('previewInfo').textContent=''; return; }
+  const tgt=parseFloat(sizeStr); computeDisplaced(tgt, displayGeom.attributes.position.array);
+  displayGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); previewActive=true;
+  $('previewInfo').textContent=`Boy ${tgt}: iç çap ${(tgt/Math.PI).toFixed(2)} mm (şu an ${(currentSizeMM/Math.PI).toFixed(2)} mm)`; }
+
+function loadGeometry(geom, name, isDemo){
+  geom.deleteAttribute('normal'); geom.deleteAttribute('uv');
+  let merged; try{ merged=mergeVertices(geom); }catch(e){ merged=geom; }
+  merged.computeBoundingBox(); const bb=merged.boundingBox, center=new THREE.Vector3(); bb.getCenter(center);
+  merged.translate(-center.x,-center.y,-center.z); merged.computeBoundingBox(); merged.computeBoundingSphere(); merged.computeVertexNormals();
+  if(!merged.index){ const n=merged.attributes.position.count; const idx=new Uint32Array(n); for(let i=0;i<n;i++) idx[i]=i; merged.setIndex(new THREE.BufferAttribute(idx,1)); }
+  if(fullGeom){ try{fullGeom.disposeBoundsTree();}catch(e){} fullGeom.dispose(); } if(displayGeom){ displayGeom.dispose(); }
+  fullGeom=merged; fullGeom.computeBoundsTree(); fullIndex=fullGeom.index.array; triCount=fullIndex.length/3;
+  alive=new Uint8Array(triCount).fill(1); aliveCount=triCount;
+  basePos=Float32Array.from(fullGeom.attributes.position.array);
+  renderIndexBuffer=new Uint32Array(fullIndex.length); renderIndexBuffer.set(fullIndex);
+  displayGeom=new THREE.BufferGeometry();
+  displayGeom.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(basePos),3));
+  displayGeom.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(fullGeom.attributes.normal.array),3));
+  colorAttr=new THREE.BufferAttribute(new Float32Array(basePos.length).fill(0.8),3); displayGeom.setAttribute('color', colorAttr);
+  displayGeom.setIndex(new THREE.BufferAttribute(renderIndexBuffer,1)); displayGeom.setDrawRange(0, fullIndex.length);
+  displayMesh.geometry=displayGeom;
+  const size=new THREE.Vector3(); fullGeom.boundingBox.getSize(size); modelRadius=fullGeom.boundingSphere.radius;
+  clearSprues(); undoStack.length=0; previewActive=false;
+  scene.remove(grid); grid=new THREE.GridHelper(Math.max(modelRadius*3,10),20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.6; grid.position.y=fullGeom.boundingBox.min.y; scene.add(grid);
+  applyAnalysis(analyzeRingPure(basePos,null)); computeVertAng();
+  $('curSize').textContent=currentSizeMM.toFixed(0); $('curDia').textContent=(2*innerR).toFixed(2)+' mm'; $('curSizeIn').value='';
+  $('pCenter').value=Math.round(headCenterDeg); $('pcVal').textContent=Math.round(headCenterDeg)+'°';
+  $('pWidth').value=Math.round(headHalfDeg); $('pwVal').textContent=Math.round(headHalfDeg)+'°';
+  buildPreviewOptions(); fitView(); updateBrushVisual();
+  $('stName').textContent=name||(isDemo?'Örnek model':'—');
+  $('stDim').textContent=size.x.toFixed(1)+' × '+size.y.toFixed(1)+' × '+size.z.toFixed(1)+' mm'; updateStats();
+  $('drop').classList.add('hidden'); if(isDemo) $('drop').classList.remove('hidden');
+  if(mode==='size') refreshProtectedColors();
+}
+function buildPreviewOptions(){ const sel=$('previewSize'); sel.innerHTML='<option value="">— kapalı —</option>'; const base=Math.round(currentSizeMM);
+  for(let s=base-6;s<=base+6;s+=2){ const o=document.createElement('option'); o.value=s; o.textContent='Boy '+s; sel.appendChild(o); } }
+function updateStats(){ $('stTri').textContent=aliveCount; $('stSprue').textContent=spruesGroup.children.length; }
+function fitView(){ const r=modelRadius||20; controls.target.set(0,0,0); const dist=r/Math.sin(THREE.MathUtils.degToRad(camera.fov*0.5))*0.85;
+  camera.position.set(dist*0.6,dist*0.5,dist*0.8); camera.near=r/200; camera.far=r*200; camera.updateProjectionMatrix(); controls.update(); }
+
+const raycaster=new THREE.Raycaster(); raycaster.firstHitOnly=true; const pointer=new THREE.Vector2(); let brushRadius=2;
+function updateBrushVisual(){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(brushRadius*0.92,brushRadius,48); startMark.scale.setScalar(Math.max(brushRadius*0.25, modelRadius*0.012)); }
+function pointerToRay(ev){ const r=renderer.domElement.getBoundingClientRect(); pointer.x=((ev.clientX-r.left)/r.width)*2-1; pointer.y=-((ev.clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(pointer,camera); }
+function pickSurface(ev){ if(!fullGeom) return null; pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); return h.length?h[0]:null; }
+const _cp=new THREE.Vector3(); let currentStroke=[];
+function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, r2=r*r;
+  fullGeom.boundsTree.shapecast({ intersectsBounds:(box)=> box.distanceToPoint(center)<=r?INTERSECTED:NOT_INTERSECTED,
+    intersectsTriangle:(tri,ti)=>{ if(alive[ti]){ tri.closestPointToPoint(center,_cp); if(_cp.distanceToSquared(center)<=r2){ alive[ti]=0; aliveCount--; currentStroke.push(ti); } } return false; } }); needsRebuild=true; }
+function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
+
+let spruePts=[], sprueDia=1.5;
+function cancelSprue(){ spruePts=[]; startMark.visible=false; previewLine.visible=false; const s=$('sprueState'); if(s) s.textContent='Nokta bekleniyor'; }
+function clearSprues(){ [...spruesGroup.children].forEach(m=>{m.geometry.dispose(); spruesGroup.remove(m);}); }
+function addSprue(p1,p2,record){ const dir=new THREE.Vector3().subVectors(p2,p1); const len=dir.length(); if(len<1e-4) return null;
+  const geo=new THREE.CylinderGeometry(sprueDia/2,sprueDia/2,len,20,1,false);
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
+  const mid=new THREE.Vector3().addVectors(p1,p2).multiplyScalar(0.5); geo.applyMatrix4(new THREE.Matrix4().compose(mid,q,new THREE.Vector3(1,1,1)));
+  const mesh=new THREE.Mesh(geo,sprueMat); spruesGroup.add(mesh); if(record!==false) undoStack.push({type:'sprue',mesh}); updateStats(); return mesh; }
+
+let painting=false;
+renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
+  if(mode==='erase'){ painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
+  else if(mode==='sprue'){ const h=pickSurface(ev); if(!h) return; spruePts.push(h.point.clone());
+    if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
+    else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } } });
+renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
+  if(mode==='erase'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(painting&&(ev.buttons&1)&&h) eraseAt(h.point); }
+  else if(mode==='sprue'&&spruePts.length===1){ const h=pickSurface(ev); if(h){ previewLine.visible=true; const p=previewLine.geometry.attributes.position; p.setXYZ(0,spruePts[0].x,spruePts[0].y,spruePts[0].z); p.setXYZ(1,h.point.x,h.point.y,h.point.z); p.needsUpdate=true; previewLine.computeLineDistances(); } }
+  else cursorRing.visible=false; });
+function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } }
+renderer.domElement.addEventListener('pointerup',endPaint);
+renderer.domElement.addEventListener('pointerleave',()=>{cursorRing.visible=false;});
+
+function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); } updateStats(); }
+function resetEdits(){ if(!fullGeom) return; alive.fill(1); aliveCount=triCount; needsRebuild=true; clearSprues(); undoStack.length=0; cancelSprue(); updateStats(); }
+
+function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Array(aliveCount*9); let w=0;
+  for(let t=0;t<triCount;t++){ if(!alive[t]) continue; const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=pos[vi]; out[w++]=pos[vi+1]; out[w++]=pos[vi+2]; } }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals(); return g; }
+function sprueDisplacedGeom(mesh, targetMM){ const src=mesh.geometry.attributes.position.array, out=Float32Array.from(src);
+  if(targetMM!=null){ const dr=(targetMM-currentSizeMM)/(2*Math.PI), hc=headCenterDeg*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20;
+    for(let i=0;i<out.length;i+=3){ const x=src[i+pA]-holeC[0], y=src[i+pB]-holeC[1]; const rho=Math.hypot(x,y)||1e-9;
+      const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-headCenterDeg+180)%360+360)%360-180); let u=(headHalfDeg+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+      out[i+pA]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+pB]+=u*dr*hy+(1-u)*dr*(y/rho); } }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals(); return g; }
+function makeSTL(posSource, targetMM){ const group=new THREE.Group(); group.add(new THREE.Mesh(buildCarvedGeometry(posSource), goldMat));
+  for(const s of spruesGroup.children) group.add(new THREE.Mesh(sprueDisplacedGeom(s,targetMM), sprueMat)); group.updateMatrixWorld(true);
+  const dv=new STLExporter().parse(group,{binary:true}); group.children.forEach(m=>m.geometry.dispose());
+  return new Uint8Array(dv.buffer.slice(dv.byteOffset, dv.byteOffset+dv.byteLength)); }
+function dlBlob(blob,fname){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),6000); }
+function dl(bytes,fname,mime){ dlBlob(new Blob([bytes],{type:mime||'application/octet-stream'}),fname); }
+function baseName(){ return ((($('stName').textContent||'model').replace(/\.stl$/i,'').replace(/[^\w\-çğıöşüÇĞİÖŞÜ ]/g,'').trim()))||'model'; }
+function parseSizes(){ return ($('sizes').value.match(/[\d]+(\.\d+)?/g)||[]).map(Number).filter(v=>v>20&&v<120); }
+function exportSTL(){ if(!fullGeom) return; showLoading('STL hazırlanıyor…'); setTimeout(()=>{ try{ dl(makeSTL(basePos,null), baseName()+'_duzenlenmis.stl','model/stl'); }catch(e){ alert('Hata: '+e.message);} hideLoading(); },30); }
+function batchSizes(){ if(!fullGeom) return; const cur=parseFloat($('curSizeIn').value); if(isFinite(cur)&&cur>0) currentSizeMM=cur;
+  const list=parseSizes(); if(!list.length){ alert('Lütfen boy(lar) gir, örn: 54, 56, 58'); return; }
+  showLoading('Boylar hazırlanıyor…'); setTimeout(()=>{ try{ const files={}; for(const s of list){ files[`${baseName()}_boy${s}.stl`]=makeSTL(basePos,s); }
+    if(window.fflate){ dl(fflate.zipSync(files,{level:6}), `${baseName()}_boylar.zip`,'application/zip'); } else { for(const [k,v] of Object.entries(files)) dl(v,k,'model/stl'); } }catch(e){ alert('Boylama hatası: '+e.message);} hideLoading(); },30); }
+
+function deformExportRaw(pos, prm, targetMM){
+  const {pA:a,pB:b,holeC:hC,currentSizeMM:cs,headCenterDeg:hcd,headHalfDeg:hh}=prm;
+  const dr=(targetMM-cs)/(2*Math.PI), hc=hcd*Math.PI/180, hx=Math.cos(hc), hy=Math.sin(hc), trans=20, out=Float32Array.from(pos);
+  for(let i=0;i<out.length;i+=3){ const x=pos[i+a]-hC[0], y=pos[i+b]-hC[1]; const rho=Math.hypot(x,y)||1e-9;
+    const ad=Math.abs(((Math.atan2(y,x)*180/Math.PI-hcd+180)%360+360)%360-180); let u=(hh+trans-ad)/trans; u=u<0?0:(u>1?1:u);
+    out[i+a]+=u*dr*hx+(1-u)*dr*(x/rho); out[i+b]+=u*dr*hy+(1-u)*dr*(y/rho); }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals();
+  const m=new THREE.Mesh(g,goldMat); m.updateMatrixWorld(true); const dv=new STLExporter().parse(m,{binary:true}); g.dispose();
+  return new Uint8Array(dv.buffer.slice(dv.byteOffset,dv.byteOffset+dv.byteLength)); }
+async function batchFolder(allFiles){
+  const files=allFiles.filter(f=>/\.stl$/i.test(f.name)); if(!files.length){ alert('Seçilen klasörde .stl dosyası yok.'); return; }
+  const list=parseSizes(); if(!list.length){ alert('Önce "Hangi boylara" kutusuna boy gir.'); return; }
+  showLoading('0/'+files.length+' model…'); const zip={};
+  for(let i=0;i<files.length;i++){ $('loadingTxt').textContent=`${i+1}/${files.length}: ${files[i].name}`; await new Promise(r=>setTimeout(r,0));
+    try{ const buf=await files[i].arrayBuffer(); const g=stlLoader.parse(buf); let pos=g.attributes.position.array;
+      if(unitScale!==1){ pos=Float32Array.from(pos); for(let k=0;k<pos.length;k++) pos[k]*=unitScale; }
+      const prm=analyzeRingPure(pos,null); const base=files[i].name.replace(/\.stl$/i,'');
+      for(const s of list){ zip[`${base}/${base}_boy${s}.stl`]=deformExportRaw(pos,prm,s); }
+      zip[`${base}/${base}_OLCUM.txt`]=new TextEncoder().encode(`Ölçülen boy: ${prm.currentSizeMM.toFixed(1)} (iç çap ${(2*prm.innerR).toFixed(2)} mm)\nÜretilen boylar: ${list.join(', ')}\n`);
+    }catch(err){ zip[`HATA_${files[i].name}.txt`]=new TextEncoder().encode('İşlenemedi: '+err.message); } }
+  $('loadingTxt').textContent='ZIP paketleniyor…'; await new Promise(r=>setTimeout(r,0));
+  if(window.fflate){ dlBlob(new Blob([fflate.zipSync(zip,{level:6})],{type:'application/zip'}),'boylar_toplu.zip'); }
+  else { for(const [k,v] of Object.entries(zip)) if(k.endsWith('.stl')) dl(v,k.replace(/\//g,'_'),'model/stl'); }
+  hideLoading(); }
+
+function renderShot(){ const dom=renderer.domElement, W=1920, H=Math.round(W*stage.clientHeight/stage.clientWidth);
+  const gv=grid.visible; grid.visible=false; cursorRing.visible=false; startMark.visible=false; previewLine.visible=false;
+  renderer.setSize(W,H,false); camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.render(scene,camera);
+  dom.toBlob(b=>{ if(b) dlBlob(b, baseName()+'_render.png'); grid.visible=gv; onResize(); }, 'image/png'); }
+
+const stlLoader=new STLLoader();
+const RHINO_LIB='https://cdn.jsdelivr.net/npm/rhino3dm@8.4.0/';
+let rhinoMod=null;
+async function getRhinoMod(){
+  if(rhinoMod) return rhinoMod;
+  if(typeof window.rhino3dm!=='function') throw new Error('rhino3dm motoru yüklenmedi — internet bağlantısını kontrol et');
+  rhinoMod=await window.rhino3dm({ locateFile:f=>RHINO_LIB+f });
+  return rhinoMod;
+}
+async function load3dm(buffer, name){
+  showLoading('Rhino (.3dm) çevriliyor… (ilk seferde motor iniyor, biraz sürebilir)');
+  try{
+    const rhino=await getRhinoMod();
+    const doc=rhino.File3dm.fromByteArray(new Uint8Array(buffer));
+    if(!doc) throw new Error('dosya okunamadı (bozuk ya da desteklenmeyen sürüm olabilir)');
+    const objs=doc.objects(), cnt=objs.count, MT=rhino.MeshType.Any;
+    const tris=[];
+    const addMesh=(m)=>{ if(!m) return; const vs=m.vertices(), fs=m.faces(), nv=vs.count, nf=fs.count;
+      const V=new Array(nv); for(let i=0;i<nv;i++) V[i]=vs.get(i);
+      for(let i=0;i<nf;i++){ const f=fs.get(i); const a=V[f[0]],b=V[f[1]],c=V[f[2]]; if(!a||!b||!c) continue;
+        tris.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]);
+        if(f.length>3 && f[3]!==f[2]){ const d=V[f[3]]; if(d) tris.push(a[0],a[1],a[2], c[0],c[1],c[2], d[0],d[1],d[2]); } } };
+    for(let i=0;i<cnt;i++){
+      let o,g; try{ o=objs.get(i); g=o&&o.geometry(); }catch(e){ continue; } if(!g) continue;
+      const ot=g.objectType;
+      try{
+        if(ot===rhino.ObjectType.Mesh){ addMesh(g); }
+        else if(ot===rhino.ObjectType.Extrusion){ addMesh(g.getMesh(MT)); }
+        else if(ot===rhino.ObjectType.Brep){ const faces=g.faces(); for(let k=0;k<faces.count;k++){ const bf=faces.get(k); if(bf && bf.getMesh) addMesh(bf.getMesh(MT)); } }
+      }catch(e){ /* bu nesne atlandı */ }
+    }
+    if(!tris.length){ hideLoading(); alert('Bu .3dm içinde işlenebilir mesh bulunamadı.\n\nModel sadece NURBS yüzeyse, Rhino\'da render mesh ile kaydedilmiş olması gerekir. Böyle bir dosyayı bana gönderirsen bakarım.'); return; }
+    const G=new THREE.BufferGeometry(); G.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tris),3));
+    lastSTL=null; loadGeometry(G, name.replace(/\.3dm$/i,'.stl'), false); hideLoading();
+  }catch(e){ hideLoading(); alert('.3dm çevrilemedi: '+((e&&e.message)||e)); }
+}
+function loadFromBuffer(buffer, name){ const geom=stlLoader.parse(buffer); if(unitScale!==1) geom.scale(unitScale,unitScale,unitScale); loadGeometry(geom,name,false); }
+function handleFile(file){ if(!file) return; const is3dm=/\.3dm$/i.test(file.name), isStl=/\.stl$/i.test(file.name);
+  if(!is3dm && !isStl){ alert('Lütfen .stl veya .3dm dosyası seç.'); return; }
+  showLoading('“'+file.name+'” okunuyor…'); const r=new FileReader();
+  r.onload=e=>{ try{ if(is3dm){ load3dm(e.target.result, file.name); } else { lastSTL={buffer:e.target.result.slice(0), name:file.name}; loadFromBuffer(e.target.result, file.name); hideLoading(); } }catch(err){ alert('Dosya okunamadı: '+err.message); hideLoading(); } };
+  r.onerror=()=>{ alert('Dosya okunamadı.'); hideLoading(); }; r.readAsArrayBuffer(file); }
+$('btnOpen').addEventListener('click',()=>$('file').click());
+$('file').addEventListener('change',e=>{ handleFile(e.target.files[0]); e.target.value=''; });
+$('btnFolder').addEventListener('click',()=>$('folder').click());
+$('folder').addEventListener('change',e=>{ batchFolder([...e.target.files]); e.target.value=''; });
+const dropEl=$('drop');
+window.addEventListener('dragover',e=>{ e.preventDefault(); dropEl.classList.remove('hidden'); dropEl.classList.add('show-drag'); });
+window.addEventListener('dragleave',e=>{ if(e.clientX===0&&e.clientY===0){ dropEl.classList.remove('show-drag'); if(fullGeom) dropEl.classList.add('hidden'); } });
+window.addEventListener('drop',e=>{ e.preventDefault(); dropEl.classList.remove('show-drag'); if(fullGeom) dropEl.classList.add('hidden'); const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+$('brush').addEventListener('input',e=>{ brushRadius=parseFloat(e.target.value); $('brushVal').textContent=brushRadius.toFixed(1)+' mm'; updateBrushVisual(); });
+$('sprue').addEventListener('input',e=>{ sprueDia=parseFloat(e.target.value); $('sprueVal').textContent=sprueDia.toFixed(1)+' mm'; });
+$('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
+$('pWidth').addEventListener('input',e=>{ headHalfDeg=parseFloat(e.target.value); $('pwVal').textContent=Math.round(headHalfDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
+$('previewSize').addEventListener('change',e=>setPreview(e.target.value));
+$('curSizeIn').addEventListener('change',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)&&v>0){ currentSizeMM=v; $('curSize').textContent=v.toFixed(0); $('curDia').textContent=(v/Math.PI).toFixed(2)+' mm'; buildPreviewOptions(); if(previewActive) setPreview($('previewSize').value); } });
+$('unit').addEventListener('change',e=>{ unitScale=parseFloat(e.target.value)||1; if(lastSTL){ showLoading('Birim uygulanıyor…'); setTimeout(()=>{ loadFromBuffer(lastSTL.buffer, lastSTL.name); hideLoading(); },20); } });
+$('btnBatch').addEventListener('click',batchSizes);
+$('btnUndo').addEventListener('click',undo);
+$('btnReset').addEventListener('click',resetEdits);
+$('btnFit').addEventListener('click',fitView);
+$('btnRender').addEventListener('click',renderShot);
+$('btnExport').addEventListener('click',exportSTL);
+window.addEventListener('keydown',e=>{ if(e.key==='Escape') cancelSprue(); if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+  if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); });
+function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
+window.addEventListener('resize',onResize);
+function animate(){ requestAnimationFrame(animate); if(needsRebuild) rebuildDisplay(); controls.update(); renderer.render(scene,camera); }
+animate();
+(function demo(){ const g=new THREE.TorusGeometry(9.19,1.2,20,96); g.rotateX(Math.PI/2); loadGeometry(g,null,true); $('stName').textContent='Örnek model (torus)'; setMode('view'); })();
+</script>
+<script>
+if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
+</body>
+</html>
