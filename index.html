@@ -99,6 +99,9 @@
   @media (prefers-reduced-motion:reduce){.spin{animation:none}}
   footer{position:absolute; left:16px; bottom:16px; z-index:4; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:9px 14px; font-size:12px; color:var(--muted); box-shadow:var(--shadow); max-width:min(380px, calc(100% - 32px))}
   .toolbar{position:absolute; left:16px; top:16px; z-index:4; display:flex; gap:6px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px; box-shadow:var(--shadow)}
+  .viewbar{position:absolute; left:16px; top:70px; z-index:4; display:flex; flex-direction:column; gap:4px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px; box-shadow:var(--shadow)}
+  .vbtn{padding:6px 10px; text-align:center; border-radius:7px; cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); border:1px solid transparent}
+  .vbtn:hover{background:var(--panel2); color:var(--fg); border-color:var(--line)}
   [hidden]{display:none !important}
   .hidden{display:none !important}
 </style>
@@ -130,6 +133,15 @@
       <button class="btn icon" id="btnUndo" title="Geri al (Ctrl+Z)">↶</button>
       <button class="btn icon" id="btnReset" title="Düzenlemeleri temizle">⟲</button>
       <button class="btn icon" id="btnFit" title="Görünümü ortala">🎯</button>
+    </div>
+    <div class="viewbar">
+      <div class="vbtn" data-view="persp" title="Perspektif (3B)">3B</div>
+      <div class="vbtn" data-view="ust" title="Üstten">Üst</div>
+      <div class="vbtn" data-view="alt" title="Alttan">Alt</div>
+      <div class="vbtn" data-view="on" title="Önden">Ön</div>
+      <div class="vbtn" data-view="arka" title="Arkadan">Arka</div>
+      <div class="vbtn" data-view="sag" title="Sağdan">Sağ</div>
+      <div class="vbtn" data-view="sol" title="Soldan">Sol</div>
     </div>
 
     <aside>
@@ -497,8 +509,14 @@ function loadGeometry(geom, name, isDemo){
 function buildPreviewOptions(){ const sel=$('previewSize'); sel.innerHTML='<option value="">— kapalı —</option>'; const base=Math.round(currentSizeMM);
   for(let s=base-6;s<=base+6;s+=2){ const o=document.createElement('option'); o.value=s; o.textContent='Boy '+s; sel.appendChild(o); } }
 function updateStats(){ $('stTri').textContent=aliveCount; $('stSprue').textContent=spruesGroup.children.length; }
-function fitView(){ const r=modelRadius||20; controls.target.set(0,0,0); const dist=r/Math.sin(THREE.MathUtils.degToRad(camera.fov*0.5))*0.85;
-  camera.position.set(dist*0.6,dist*0.5,dist*0.8); camera.near=r/200; camera.far=r*200; camera.updateProjectionMatrix(); controls.update(); }
+function fitView(){ setView('persp'); }
+function setView(name){ const r=modelRadius||20; const d=r/Math.sin(THREE.MathUtils.degToRad(camera.fov*0.5))*0.92;
+  controls.target.set(0,0,0); camera.near=r/200; camera.far=r*200;
+  const e=1e-4; camera.up.set(0,1,0);
+  const P={ persp:[d*0.6,d*0.5,d*0.8], ust:[0,d,e], alt:[0,-d,e], on:[0,0,d], arka:[0,0,-d], sag:[d,0,0], sol:[-d,0,0] }[name]||[d*0.6,d*0.5,d*0.8];
+  if(name==='ust'||name==='alt') camera.up.set(0,0,-1);
+  camera.position.set(P[0],P[1],P[2]); camera.updateProjectionMatrix(); controls.update(); }
+document.querySelectorAll('.vbtn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 
 const raycaster=new THREE.Raycaster(); raycaster.firstHitOnly=true; const pointer=new THREE.Vector2(); let brushRadius=2;
 function updateBrushVisual(){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(brushRadius*0.92,brushRadius,48); startMark.scale.setScalar(Math.max(brushRadius*0.25, modelRadius*0.012)); }
