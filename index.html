@@ -310,7 +310,7 @@ const previewLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new T
 previewLine.visible=false; previewLine.renderOrder=999; scene.add(previewLine);
 
 let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
-let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null;
+let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null, drawnOrig=null;
 let modelRadius=20, needsRebuild=false;
 const undoStack=[];
 let axisIdx=1,pA=0,pB=2, holeC=[0,0], innerR=9, currentSizeMM=58, headCenterDeg=0, headHalfDeg=120;
@@ -422,6 +422,7 @@ function loadGeometry(geom, name, isDemo){
   alive=new Uint8Array(triCount).fill(1); aliveCount=triCount;
   basePos=Float32Array.from(fullGeom.attributes.position.array);
   renderIndexBuffer=new Uint32Array(fullIndex.length); renderIndexBuffer.set(fullIndex);
+  drawnOrig=new Int32Array(triCount); for(let i=0;i<triCount;i++) drawnOrig[i]=i;
   displayGeom=new THREE.BufferGeometry();
   displayGeom.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(basePos),3));
   displayGeom.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(fullGeom.attributes.normal.array),3));
@@ -460,7 +461,7 @@ function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, 
       if(eraseFrontOnly){ _e1.subVectors(tri.b,tri.a); _e2.subVectors(tri.c,tri.a); _fn.crossVectors(_e1,_e2);
         if(_fn.dot(_camDir)>0){ return false; } }   // kameraya ters bakan (arka) yüzleri atlama
       alive[ti]=0; aliveCount--; currentStroke.push(ti); return false; } }); needsRebuild=true; }
-function rebuildDisplay(){ let w=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
+function rebuildDisplay(){ let w=0,tw=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; drawnOrig[tw++]=t; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
 
 // Bağlı parça (component) tespiti — kenar paylaşan üçgenler
 let compId=null;
@@ -474,8 +475,8 @@ function computeComponents(){
 }
 function deletePieceAt(ev){
   if(!compId) computeComponents();
-  pointerToRay(ev); const h=raycaster.intersectObject(queryMesh,false); if(!h.length) return 0;
-  const ti=h[0].faceIndex; if(ti==null || ti>=triCount || !alive[ti]) return 0;
+  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return 0;
+  const fi=h[0].faceIndex; if(fi==null) return 0; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return 0;
   const cid=compId[ti]; const stroke=[]; let killed=0;
   for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid){ alive[t]=0; aliveCount--; stroke.push(t); killed++; } }
   if(killed){ undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); }
