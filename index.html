@@ -344,7 +344,8 @@ const $=id=>document.getElementById(id);
 
 const stage=$('stage');
 const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true, logarithmicDepthBuffer:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.75));
+const DPR=window.devicePixelRatio||1; const PR_HI=Math.min(DPR,1.5), PR_LO=Math.min(DPR,0.75);
+renderer.setPixelRatio(PR_HI);
 renderer.setSize(stage.clientWidth, stage.clientHeight);
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
 stage.appendChild(renderer.domElement);
@@ -353,6 +354,12 @@ const camera=new THREE.PerspectiveCamera(45, stage.clientWidth/stage.clientHeigh
 camera.position.set(40,30,55);
 const controls=new OrbitControls(camera, renderer.domElement);
 controls.enableDamping=true; controls.dampingFactor=0.08;
+// Performans: boşta çizme, döndürürken çözünürlüğü düşür
+let lastActivity=performance.now(); function wake(){ lastActivity=performance.now(); }
+let prTimer=null;
+controls.addEventListener('change', wake);
+controls.addEventListener('start', ()=>{ clearTimeout(prTimer); if(renderer.getPixelRatio()!==PR_LO){ renderer.setPixelRatio(PR_LO); onResize(); } wake(); });
+controls.addEventListener('end', ()=>{ clearTimeout(prTimer); prTimer=setTimeout(()=>{ renderer.setPixelRatio(PR_HI); onResize(); wake(); }, 180); });
 const pmrem=new THREE.PMREMGenerator(renderer);
 scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
 scene.add(new THREE.HemisphereLight(0xffffff,0xdfe3ea,0.75));
@@ -967,7 +974,7 @@ buildSizeChips();
 // Canlı önizleme (ileri/geri) + tek boy indir
 let prevList=[], prevIdx=0;
 function startPreviewTour(){ prevList=parseSizes(); if(!prevList.length){ alert('Önce boy seç.'); return; } prevIdx=0; $('prevBox').hidden=false; showPrev(); }
-function showPrev(){ if(!prevList.length) return; const s=prevList[prevIdx]; $('prevSizeLbl').textContent='Boy '+s; setPreview(String(s)); }
+function showPrev(){ if(!prevList.length) return; const s=prevList[prevIdx]; $('prevSizeLbl').textContent='Boy '+s; setPreview(String(s)); wake(); }
 $('btnPreviewStart').addEventListener('click',startPreviewTour);
 $('prevPrev').addEventListener('click',()=>{ stopAutoplay(); if(!prevList.length) return; prevIdx=(prevIdx-1+prevList.length)%prevList.length; showPrev(); });
 $('prevNext').addEventListener('click',()=>{ stopAutoplay(); if(!prevList.length) return; prevIdx=(prevIdx+1)%prevList.length; showPrev(); });
@@ -1018,7 +1025,11 @@ window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); dese
   if(!typing){ if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); if(e.key==='5') setMode('parts'); } });
 function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
 window.addEventListener('resize',onResize);
-function animate(){ requestAnimationFrame(animate); if(needsRebuild) rebuildDisplay(); controls.update(); renderer.render(scene,camera); }
+['pointerdown','pointermove','pointerup','wheel','pointerleave'].forEach(ev=>renderer.domElement.addEventListener(ev,wake,{passive:true}));
+window.addEventListener('keydown',wake);
+// UI düğme/kaydıraç/menü etkileşimleri de kısa süre çizdirsin
+['click','input','change'].forEach(ev=>document.addEventListener(ev,()=>{ wake(); setTimeout(wake,60); },true));
+function animate(){ requestAnimationFrame(animate); if(needsRebuild){ rebuildDisplay(); wake(); } controls.update(); if(performance.now()-lastActivity < 700){ renderer.render(scene,camera); } }
 animate();
 (function demo(){ const g=new THREE.TorusGeometry(9.19,1.2,20,96); g.rotateX(Math.PI/2); loadGeometry(g,null,true); $('stName').textContent='Örnek model (torus)'; setMode('view'); })();
 </script>
