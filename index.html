@@ -118,6 +118,7 @@
       <div class="mode" data-mode="sprue">📍 <span>Yolluk</span></div>
       <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
       <div class="mode" data-mode="parts">🔗 <span>Parça</span></div>
+      <div class="mode" data-mode="smooth">🪄 <span>Yumuşat</span></div>
       <div class="mode" data-mode="measure">📏 <span>Ölç</span></div>
     </div>
     <div class="spacer"></div>
@@ -157,6 +158,13 @@
         <div class="hint">Parçaya <b>tıkla</b> → <b style="color:#ff6a2c">turuncu</b> seçilir. <b>Ctrl+tıkla</b> ile birden fazla parça ekle/çıkar. Seçili parçayı <b>tutup sürükle</b> → taşır.<br><b>Döndür:</b> sağ tuş &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek &nbsp;·&nbsp; boşluğa tıkla: seçimi bırak</div>
         <div class="mini" id="selState" style="margin-top:10px"></div>
         <div id="selActions" hidden style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
+          <div class="row" style="margin:2px 0"><label>Et kalınlığı değişimi</label>
+            <span style="display:flex; gap:6px; align-items:center"><input type="number" id="thickStep" min="5" max="500" step="5" value="50" style="width:64px; text-align:right"><span style="color:var(--muted)">µm</span></span>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn" id="thickPlus" style="flex:1">＋ Kalınlaştır</button>
+            <button class="btn" id="thickMinus" style="flex:1">－ İncelt</button>
+          </div>
           <button class="btn" id="selIsolate">✂ Sadece bunu bırak (gerisini sil)</button>
           <button class="btn" id="selExport">⬇ Bu parçayı ayrı STL indir</button>
           <button class="btn" id="selDelete" style="background:var(--danger); border-color:var(--danger); color:#fff">🗑 Bu parçayı sil (Del)</button>
@@ -271,6 +279,16 @@
         <div class="mini" id="partState">Eklemek için modele tıkla</div>
       </div>
 
+      <!-- Yumuşat -->
+      <div class="sec" id="secSmooth" hidden>
+        <h3>Kenar Yumuşatma</h3>
+        <div class="row"><label>Fırça çapı</label><span class="val" id="smoothVal">2.0 mm</span></div>
+        <div class="sliderwrap"><input type="range" id="smoothBrush" min="0.2" max="12" step="0.1" value="2"></div>
+        <div class="row"><label>Yumuşaklık</label><span class="val" id="smoothStrVal">%50</span></div>
+        <div class="sliderwrap"><input type="range" id="smoothStr" min="5" max="90" step="5" value="50"></div>
+        <div class="hint">Keskin kenarın üstünde sol tuşa basılı tutup <b>gezdir</b> → kenar yuvarlanır (parmağı kesmesin). Yavaş yavaş, üstünden geçtikçe artar. Döndür: sağ tuş. Geri al: ↶</div>
+      </div>
+
       <!-- Ölçü -->
       <div class="sec" id="secMeasure" hidden>
         <h3>Ölçü</h3>
@@ -379,6 +397,7 @@ function updatePanel(){
   $('secSprue').hidden = mode!=='sprue';
   $('secSize').hidden = mode!=='size';
   $('secParts').hidden = mode!=='parts';
+  $('secSmooth').hidden = mode!=='smooth';
   $('secMeasure').hidden = mode!=='measure';
 }
 function setMode(m){
@@ -390,7 +409,8 @@ function setMode(m){
   if(m!=='size'){ setPreview(''); const pb=$('prevBox'); if(pb) pb.hidden=true; }
   // Matrix mantığı: sol tuş = tıkla/seç/işle, sağ tuş = döndür, tekerlek = yakınlaş
   controls.mouseButtons = { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE };
-  renderer.domElement.style.cursor = (m==='erase'||m==='sprue'||m==='parts'||m==='measure'||m==='view') ? 'crosshair' : 'default';
+  renderer.domElement.style.cursor = (m==='erase'||m==='sprue'||m==='parts'||m==='measure'||m==='view'||m==='smooth') ? 'crosshair' : 'default';
+  if(m==='smooth' && fullGeom){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(smoothBrush*0.92,smoothBrush,48); }
   displayMesh.material = (m==='size') ? sizeMat : goldMat;
   stopAutoplay();
   if(m==='size' && fullGeom){ refreshProtectedColors(); showBoreRing(true, innerR); }
@@ -500,7 +520,7 @@ function loadGeometry(geom, name, isDemo){
   displayGeom.setIndex(new THREE.BufferAttribute(renderIndexBuffer,1)); displayGeom.setDrawRange(0, fullIndex.length);
   displayMesh.geometry=displayGeom; queryMesh.geometry=fullGeom;
   const size=new THREE.Vector3(); fullGeom.boundingBox.getSize(size); modelRadius=fullGeom.boundingSphere.radius;
-  clearSprues(); clearParts(); undoStack.length=0; previewActive=false; compId=null;
+  clearSprues(); clearParts(); undoStack.length=0; previewActive=false; compId=null; vAdj=null;
   scene.remove(grid); grid=new THREE.GridHelper(Math.max(modelRadius*3,10),20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.6; grid.position.y=fullGeom.boundingBox.min.y; scene.add(grid);
   applyAnalysis(analyzeRingPure(basePos,null)); computeVertAng();
   $('curSize').textContent=currentSizeMM.toFixed(0); $('curDia').textContent=(2*innerR).toFixed(2)+' mm'; $('curSizeIn').value='';
@@ -538,6 +558,18 @@ function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, 
         if(_fn.dot(_camDir)>0){ return false; } }   // kameraya ters bakan (arka) yüzleri atlama
       alive[ti]=0; aliveCount--; currentStroke.push(ti); return false; } }); needsRebuild=true; }
 function rebuildDisplay(){ let w=0,tw=0; const buf=renderIndexBuffer, idx=fullIndex; for(let t=0;t<triCount;t++){ if(alive[t]){ const b=t*3; buf[w++]=idx[b]; buf[w++]=idx[b+1]; buf[w++]=idx[b+2]; drawnOrig[tw++]=t; } } displayGeom.index.needsUpdate=true; displayGeom.setDrawRange(0,w); needsRebuild=false; }
+
+// Ortak vertex düzenleme yardımcıları (yumuşatma + kalınlık)
+function setVert(v,x,y,z){ const i=v*3; basePos[i]=x;basePos[i+1]=y;basePos[i+2]=z;
+  const dp=displayGeom.attributes.position.array; dp[i]=x;dp[i+1]=y;dp[i+2]=z;
+  const fp=fullGeom.attributes.position.array; fp[i]=x;fp[i+1]=y;fp[i+2]=z; }
+function afterVertEdit(refitBVH){ displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals();
+  if(refitBVH){ try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} }
+  if(mode==='view' && selectedComps && selectedComps.size) rebuildPieceSelection(); }
+let vAdj=null;
+function buildAdjacency(){ const nv=fullGeom.attributes.position.count; const adj=Array.from({length:nv},()=>new Set());
+  for(let t=0;t<triCount;t++){ const b=t*3,a0=fullIndex[b],a1=fullIndex[b+1],a2=fullIndex[b+2]; adj[a0].add(a1);adj[a0].add(a2);adj[a1].add(a0);adj[a1].add(a2);adj[a2].add(a0);adj[a2].add(a1); }
+  vAdj=adj.map(s=>[...s]); }
 
 // Bağlı parça (component) tespiti — kenar paylaşan üçgenler
 let compId=null;
@@ -592,6 +624,13 @@ function isolateSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.lengt
   const stroke=[]; for(let t=0;t<triCount;t++){ if(alive[t]&&!keep[t]){ alive[t]=0; aliveCount--; stroke.push(t); } }
   if(stroke.length) undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); clearPieceSel();
   if($('selState')) $('selState').textContent='Sadece seçili parça bırakıldı ✓'; }
+function offsetSelectedThickness(microns){ if(!selectedPieceTris||!selectedPieceTris.length){ return; } const d=microns/1000;
+  displayGeom.computeVertexNormals(); const nrm=displayGeom.attributes.normal.array;
+  const vs=new Set(); for(const t of selectedPieceTris){ const b=t*3; vs.add(fullIndex[b]); vs.add(fullIndex[b+1]); vs.add(fullIndex[b+2]); }
+  const entries=[];
+  for(const v of vs){ const i=v*3; entries.push([v,basePos[i],basePos[i+1],basePos[i+2]]); setVert(v, basePos[i]+nrm[i]*d, basePos[i+1]+nrm[i+1]*d, basePos[i+2]+nrm[i+2]*d); }
+  undoStack.push({type:'verts',entries}); afterVertEdit(true);
+  $('selState').textContent=(microns>0?'+':'')+microns+' µm uygulandı ('+vs.size+' nokta). Ölç→Et kalınlığı ile kontrol et.'; }
 function exportSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; showLoading('Parça STL hazırlanıyor…');
   setTimeout(()=>{ try{ const out=new Float32Array(selectedPieceTris.length*9); let w=0;
     for(const t of selectedPieceTris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=basePos[vi]; out[w++]=basePos[vi+1]; out[w++]=basePos[vi+2]; } }
@@ -669,9 +708,23 @@ function measureThickness(h){
     const g=measLine.geometry.attributes.position; g.setXYZ(0,p.x,p.y,p.z); g.setXYZ(1,ep.x,ep.y,ep.z); g.needsUpdate=true; measLine.visible=true;
   } else { $('measVal').textContent='—'; $('measUnit').textContent='karşı yüzey bulunamadı (açık/ince kenar)'; measMarkA.visible=false; measMarkB.visible=false; measLine.visible=false; }
 }
+// ---- Yumuşatma fırçası ----
+let smoothBrush=2, smoothStrength=0.5, smoothing=false, smoothSnap=null;
+function smoothAt(center){ if(!fullGeom.boundsTree) return; if(!vAdj) buildAdjacency();
+  const r=smoothBrush, r2=r*r; const pos=basePos; const vset=new Set();
+  fullGeom.boundsTree.shapecast({ intersectsBounds:(box)=> box.distanceToPoint(center)<=r?INTERSECTED:NOT_INTERSECTED,
+    intersectsTriangle:(tri,ti)=>{ if(!alive[ti]) return false; const b=ti*3; for(let k=0;k<3;k++){ const v=fullIndex[b+k], i=v*3; const dx=pos[i]-center.x,dy=pos[i+1]-center.y,dz=pos[i+2]-center.z; if(dx*dx+dy*dy+dz*dz<=r2) vset.add(v); } return false; } });
+  if(!vset.size) return;
+  const verts=[...vset]; const newp=new Float32Array(verts.length*3);
+  for(let k=0;k<verts.length;k++){ const v=verts[k], nb=vAdj[v]; let ax=0,ay=0,az=0; for(const u of nb){ ax+=pos[u*3];ay+=pos[u*3+1];az+=pos[u*3+2]; } const n=nb.length||1; ax/=n;ay/=n;az/=n; const i=v*3;
+    newp[k*3]=pos[i]+smoothStrength*(ax-pos[i]); newp[k*3+1]=pos[i+1]+smoothStrength*(ay-pos[i+1]); newp[k*3+2]=pos[i+2]+smoothStrength*(az-pos[i+2]); }
+  for(let k=0;k<verts.length;k++){ const v=verts[k]; if(!smoothSnap.has(v)){ const i=v*3; smoothSnap.set(v,[pos[i],pos[i+1],pos[i+2]]); } setVert(v,newp[k*3],newp[k*3+1],newp[k*3+2]); }
+  displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; }
+
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
   if(mode==='view'){ selectInView(ev); return; }
+  if(mode==='smooth'){ smoothing=true; smoothSnap=new Map(); const h=pickSurface(ev); if(h){ cursorRing.visible=true; smoothAt(h.point); } renderer.domElement.setPointerCapture(ev.pointerId); return; }
   if(mode==='erase'){ if(eraseMode==='piece'){ const ok=selectPieceAt(ev); if(!ok){ $('eraseState').textContent='O noktada parça yok — altına tıkla'; } return; }
     painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
   else if(mode==='sprue'){
@@ -702,11 +755,13 @@ renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
       if(dragKind==='part'){ u.pos.x+=dx;u.pos.y+=dy;u.pos.z+=dz; rebuildPart(dragging); }
       else { u.p1.x+=dx;u.p1.y+=dy;u.p1.z+=dz; u.p2.x+=dx;u.p2.y+=dy;u.p2.z+=dz; rebuildSprue(dragging); }
       _dragPrev.copy(_dragPt); } return; }
+  if(mode==='smooth'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(smoothing&&(ev.buttons&1)&&h) smoothAt(h.point); return; }
   if(mode==='erase'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(painting&&(ev.buttons&1)&&h) eraseAt(h.point); }
   else if(mode==='sprue'&&spruePts.length===1){ const h=pickSurface(ev); if(h){ previewLine.visible=true; const p=previewLine.geometry.attributes.position; p.setXYZ(0,spruePts[0].x,spruePts[0].y,spruePts[0].z); p.setXYZ(1,h.point.x,h.point.y,h.point.z); p.needsUpdate=true; previewLine.computeLineDistances(); } }
   else cursorRing.visible=false; });
 function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; dragKind=null;
-  if(movingSel){ movingSel=false; if(moveAccum && moveAccum.lengthSq()>1e-10){ undoStack.push({type:'move', verts:moveVerts.slice(), d:[moveAccum.x,moveAccum.y,moveAccum.z]}); displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} } } }
+  if(movingSel){ movingSel=false; if(moveAccum && moveAccum.lengthSq()>1e-10){ undoStack.push({type:'move', verts:moveVerts.slice(), d:[moveAccum.x,moveAccum.y,moveAccum.z]}); displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} } }
+  if(smoothing){ smoothing=false; if(smoothSnap && smoothSnap.size){ const entries=[]; for(const [v,p] of smoothSnap) entries.push([v,p[0],p[1],p[2]]); undoStack.push({type:'verts',entries}); displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} } smoothSnap=null; } }
 renderer.domElement.addEventListener('pointerup',endPaint);
 renderer.domElement.addEventListener('pointerleave',()=>{cursorRing.visible=false;});
 renderer.domElement.addEventListener('wheel',(ev)=>{
@@ -717,7 +772,8 @@ renderer.domElement.addEventListener('wheel',(ev)=>{
 
 function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ if(op.mesh===selectedSprue) deselectSprue(); op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); }
   else if(op.type==='part'){ if(op.mesh===selectedPart) deselectPart(); op.mesh.geometry.dispose(); partsGroup.remove(op.mesh); }
-  else if(op.type==='move'){ const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array; for(const vi of op.verts){ const i=vi*3; basePos[i]-=op.d[0]; basePos[i+1]-=op.d[1]; basePos[i+2]-=op.d[2]; dp[i]-=op.d[0]; dp[i+1]-=op.d[1]; dp[i+2]-=op.d[2]; fp[i]-=op.d[0]; fp[i+1]-=op.d[1]; fp[i+2]-=op.d[2]; } displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} if(mode==='view'&&selectedComps.size) rebuildPieceSelection(); } updateStats(); }
+  else if(op.type==='move'){ const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array; for(const vi of op.verts){ const i=vi*3; basePos[i]-=op.d[0]; basePos[i+1]-=op.d[1]; basePos[i+2]-=op.d[2]; dp[i]-=op.d[0]; dp[i+1]-=op.d[1]; dp[i+2]-=op.d[2]; fp[i]-=op.d[0]; fp[i+1]-=op.d[1]; fp[i+2]-=op.d[2]; } displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} if(mode==='view'&&selectedComps.size) rebuildPieceSelection(); }
+  else if(op.type==='verts'){ for(const e of op.entries){ setVert(e[0],e[1],e[2],e[3]); } afterVertEdit(true); } updateStats(); }
 function resetEdits(){ if(!fullGeom) return; alive.fill(1); aliveCount=triCount; needsRebuild=true; clearSprues(); undoStack.length=0; cancelSprue(); updateStats(); }
 
 function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Array(aliveCount*9); let w=0;
@@ -880,6 +936,11 @@ $('btnFit').addEventListener('click',fitView);
 $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
 $('brushFront').addEventListener('change',e=>{ eraseFrontOnly=e.target.checked; });
+function setSmoothCursor(){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(smoothBrush*0.92,smoothBrush,48); }
+$('smoothBrush').addEventListener('input',e=>{ smoothBrush=parseFloat(e.target.value); $('smoothVal').textContent=smoothBrush.toFixed(1)+' mm'; if(mode==='smooth') setSmoothCursor(); });
+$('smoothStr').addEventListener('input',e=>{ smoothStrength=parseFloat(e.target.value)/100; $('smoothStrVal').textContent='%'+e.target.value; });
+$('thickPlus').addEventListener('click',()=>offsetSelectedThickness(parseFloat($('thickStep').value)||50));
+$('thickMinus').addEventListener('click',()=>offsetSelectedThickness(-(parseFloat($('thickStep').value)||50)));
 $('pieceDelBtn2').addEventListener('click',deleteSelectedPiece);
 $('selDelete').addEventListener('click',deleteSelectedPiece);
 $('selIsolate').addEventListener('click',isolateSelectedPiece);
