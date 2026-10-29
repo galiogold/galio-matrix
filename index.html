@@ -169,7 +169,8 @@
           <button class="btn" id="selExport">⬇ Bu parçayı ayrı STL indir</button>
           <button class="btn" id="selDelete" style="background:var(--danger); border-color:var(--danger); color:#fff">🗑 Bu parçayı sil (Del)</button>
         </div>
-        <div class="hint" style="margin-top:12px; opacity:.85">Temizledikten sonra üstteki <b>STL İndir</b> ile kaydet. Rhino <b>.3dm</b> dosyaları otomatik STL'ye çevrilir.</div>
+        <button class="btn block" id="btnBake2" style="margin-top:10px">🔗 Eklenenleri modele birleştir (tek parça)</button>
+        <div class="hint" style="margin-top:12px; opacity:.85">Taşıdığın/ayırdığın parçalar zaten tek STL olarak iner. Eklenen halka/yollukları kalıcı tek parça yapmak için "Birleştir". Temizledikten sonra <b>STL İndir</b>.</div>
       </div>
 
       <!-- Sil -->
@@ -343,7 +344,7 @@ const $=id=>document.getElementById(id);
 
 const stage=$('stage');
 const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true, logarithmicDepthBuffer:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2.5));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.75));
 renderer.setSize(stage.clientWidth, stage.clientHeight);
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
 stage.appendChild(renderer.domElement);
@@ -552,7 +553,9 @@ document.querySelectorAll('.vbtn').forEach(b=>b.addEventListener('click',()=>set
 const raycaster=new THREE.Raycaster(); raycaster.firstHitOnly=true; const pointer=new THREE.Vector2(); let brushRadius=2;
 function updateBrushVisual(){ cursorRing.geometry.dispose(); cursorRing.geometry=new THREE.RingGeometry(brushRadius*0.92,brushRadius,48); startMark.scale.setScalar(Math.max(brushRadius*0.25, modelRadius*0.012)); }
 function pointerToRay(ev){ const r=renderer.domElement.getBoundingClientRect(); pointer.x=((ev.clientX-r.left)/r.width)*2-1; pointer.y=-((ev.clientY-r.top)/r.height)*2+1; raycaster.setFromCamera(pointer,camera); }
-function pickSurface(ev){ if(!fullGeom) return null; pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); return h.length?h[0]:null; }
+let bvhDirty=false;
+function ensureBVH(){ if(bvhDirty){ try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} bvhDirty=false; } }
+function pickSurface(ev){ if(!fullGeom) return null; ensureBVH(); pointerToRay(ev); let h=raycaster.intersectObject(queryMesh,false); if(h.length) return h[0]; h=raycaster.intersectObject(displayMesh,false); return h.length?h[0]:null; }
 const _cp=new THREE.Vector3(), _e1=new THREE.Vector3(), _e2=new THREE.Vector3(), _fn=new THREE.Vector3(); let currentStroke=[];
 let eraseFrontOnly=true, eraseMode='brush';
 function eraseAt(center){ if(!fullGeom.boundsTree) return; const r=brushRadius, r2=r*r;
@@ -588,9 +591,10 @@ function computeComponents(){
 }
 let selectedPieceTris=null;
 function highlightPiece(ev){
-  if(!compId) computeComponents();
-  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return 0;
-  const fi=h[0].faceIndex; if(fi==null) return 0; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return 0;
+  if(!compId) computeComponents(); ensureBVH();
+  pointerToRay(ev); let h=raycaster.intersectObject(queryMesh,false); let ti=null;
+  if(h.length && h[0].faceIndex!=null){ ti=h[0].faceIndex; } else { h=raycaster.intersectObject(displayMesh,false); if(h.length && h[0].faceIndex!=null) ti=drawnOrig[h[0].faceIndex]; }
+  if(ti==null||ti<0||ti>=triCount||!alive[ti]) return 0;
   const cid=compId[ti]; const tris=[]; for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid) tris.push(t); }
   const pos=basePos, out=new Float32Array(tris.length*9); let w=0;
   for(const t of tris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=pos[vi]; out[w++]=pos[vi+1]; out[w++]=pos[vi+2]; } }
@@ -599,7 +603,11 @@ function highlightPiece(ev){
 }
 // ---- Çoklu seçim + taşıma (Seç modu) ----
 let selectedComps=new Set(), moveVerts=null, movingSel=false, moveAccum=null;
-function pickComp(ev){ if(!compId) computeComponents(); pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return null; const fi=h[0].faceIndex; if(fi==null) return null; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return null; return {cid:compId[ti], point:h[0].point}; }
+function pickComp(ev){ if(!compId) computeComponents(); ensureBVH(); pointerToRay(ev);
+  let h=raycaster.intersectObject(queryMesh,false); let ti=null, pt=null;
+  if(h.length && h[0].faceIndex!=null){ ti=h[0].faceIndex; pt=h[0].point; }
+  else { h=raycaster.intersectObject(displayMesh,false); if(h.length && h[0].faceIndex!=null){ ti=drawnOrig[h[0].faceIndex]; pt=h[0].point; } }
+  if(ti==null||ti<0||ti>=triCount||!alive[ti]) return null; return {cid:compId[ti], point:pt}; }
 function rebuildPieceSelection(){
   if(!selectedComps.size){ selectedPieceTris=null; pieceHighlight.visible=false; $('selActions').hidden=true; $('selState').textContent='Seçim yok — parçaya tıkla'; return; }
   const tris=[]; for(let t=0;t<triCount;t++){ if(alive[t] && selectedComps.has(compId[t])) tris.push(t); }
@@ -747,7 +755,7 @@ function smoothAt(center){ if(!fullGeom.boundsTree) return; if(!vAdj) buildAdjac
 function nudgeMeshSel(delta){ if(!selectedComps.size||!selectedPieceTris) return; const vs=new Set(); for(const t of selectedPieceTris){ const b=t*3; vs.add(fullIndex[b]); vs.add(fullIndex[b+1]); vs.add(fullIndex[b+2]); } const verts=[...vs];
   const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array;
   for(const vi of verts){ const i=vi*3; basePos[i]+=delta.x;basePos[i+1]+=delta.y;basePos[i+2]+=delta.z; dp[i]+=delta.x;dp[i+1]+=delta.y;dp[i+2]+=delta.z; fp[i]+=delta.x;fp[i+1]+=delta.y;fp[i+2]+=delta.z; }
-  displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals();
+  displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); bvhDirty=true;
   undoStack.push({type:'move', verts, d:[delta.x,delta.y,delta.z]}); rebuildPieceSelection(); }
 function nudgeSelection(e){ const step=e.shiftKey?1.0:0.2; _camRight.setFromMatrixColumn(camera.matrixWorld,0).normalize(); _camUp.setFromMatrixColumn(camera.matrixWorld,1).normalize();
   let mx=0,my=0; if(e.key==='ArrowLeft')mx=-step; else if(e.key==='ArrowRight')mx=step; else if(e.key==='ArrowUp')my=step; else if(e.key==='ArrowDown')my=-step; else return false;
@@ -944,6 +952,7 @@ function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($
 ['partThick','partInner','partTilt','partRot','partGap'].forEach(id=>$(id).addEventListener('input',onPartParam));
 $('btnAddRing').addEventListener('click',addRingCenter);
 $('btnBake').addEventListener('click',bakeParts);
+$('btnBake2').addEventListener('click',bakeParts);
 $('partDelBtn').addEventListener('click',deletePart);
 $('rigidHead').addEventListener('change',e=>{ rigidHead=e.target.checked; $('headControls').hidden=!rigidHead; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
