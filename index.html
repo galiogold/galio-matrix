@@ -113,7 +113,7 @@
     <button class="btn primary" id="btnOpen">Model Yükle</button>
     <input type="file" id="file" accept=".stl,.3dm" class="hidden" hidden>
     <div class="seg" role="group" aria-label="Çalışma modu">
-      <div class="mode active" data-mode="view">🔄 <span>Döndür</span></div>
+      <div class="mode active" data-mode="view">👆 <span>Seç</span></div>
       <div class="mode" data-mode="erase">🩹 <span>Sil</span></div>
       <div class="mode" data-mode="sprue">📍 <span>Yolluk</span></div>
       <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
@@ -151,14 +151,17 @@
         <span id="axisTag" hidden></span><span id="stTri" hidden></span>
       </div>
 
-      <!-- Döndür -->
+      <!-- Seç / Ayır -->
       <div class="sec" id="secView">
-        <h3>Model</h3>
-        <div class="hint">Soldaki düğmelerden işini seç:<br>
-        <b>🩹 Sil</b> — fırçayla istediğin yeri sil.<br>
-        <b>📍 Yolluk</b> — istediğin yere çubuk ekle.<br>
-        <b>💍 Boylama</b> — yüzüğü istediğin boylara çıkar.<br><span style="opacity:.8">Rhino <b>.3dm</b> dosyaları otomatik STL'ye çevrilir.</span></div>
-        <div class="hint" style="margin-top:12px"><b>Döndür:</b> sol sürükle &nbsp;·&nbsp; <b>Kaydır:</b> sağ &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek</div>
+        <h3>Seç / Ayır</h3>
+        <div class="hint">Modelde bir <b>parçaya tıkla</b> → parça <b style="color:#ff6a2c">turuncu</b> seçilir. Ayrı duran parçaları (ör. içinden geçen çubuk, ayrı taş) seçer.<br><b>Döndür:</b> sağ tuş &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek</div>
+        <div class="mini" id="selState" style="margin-top:10px"></div>
+        <div id="selActions" hidden style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
+          <button class="btn" id="selIsolate">✂ Sadece bunu bırak (gerisini sil)</button>
+          <button class="btn" id="selExport">⬇ Bu parçayı ayrı STL indir</button>
+          <button class="btn" id="selDelete" style="background:var(--danger); border-color:var(--danger); color:#fff">🗑 Bu parçayı sil (Del)</button>
+        </div>
+        <div class="hint" style="margin-top:12px; opacity:.85">Temizledikten sonra üstteki <b>STL İndir</b> ile kaydet. Rhino <b>.3dm</b> dosyaları otomatik STL'ye çevrilir.</div>
       </div>
 
       <!-- Sil -->
@@ -382,9 +385,9 @@ function setMode(m){
   if(m!=='measure') clearMeasure();
   clearPieceSel();
   if(m!=='size'){ setPreview(''); const pb=$('prevBox'); if(pb) pb.hidden=true; }
-  const edit=(m==='erase'||m==='sprue'||m==='parts'||m==='measure');
-  controls.mouseButtons = edit ? { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE } : { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.DOLLY, RIGHT:THREE.MOUSE.PAN };
-  renderer.domElement.style.cursor = edit ? 'crosshair' : 'grab';
+  // Matrix mantığı: sol tuş = tıkla/seç/işle, sağ tuş = döndür, tekerlek = yakınlaş
+  controls.mouseButtons = { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE };
+  renderer.domElement.style.cursor = (m==='erase'||m==='sprue'||m==='parts'||m==='measure'||m==='view') ? 'crosshair' : 'default';
   displayMesh.material = (m==='size') ? sizeMat : goldMat;
   stopAutoplay();
   if(m==='size' && fullGeom){ refreshProtectedColors(); showBoreRing(true, innerR); }
@@ -544,24 +547,38 @@ function computeComponents(){
   for(let t=0;t<triCount;t++){ compId[t]=find(fullIndex[t*3]); }
 }
 let selectedPieceTris=null;
-function selectPieceAt(ev){
+function highlightPiece(ev){
   if(!compId) computeComponents();
-  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return false;
-  const fi=h[0].faceIndex; if(fi==null) return false; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return false;
+  pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return 0;
+  const fi=h[0].faceIndex; if(fi==null) return 0; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return 0;
   const cid=compId[ti]; const tris=[]; for(let t=0;t<triCount;t++){ if(alive[t] && compId[t]===cid) tris.push(t); }
   const pos=basePos, out=new Float32Array(tris.length*9); let w=0;
   for(const t of tris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=pos[vi]; out[w++]=pos[vi+1]; out[w++]=pos[vi+2]; } }
   pieceHighlight.geometry.dispose(); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); pieceHighlight.geometry=g; pieceHighlight.visible=true;
-  selectedPieceTris=tris;
-  $('eraseState').textContent='Seçili parça (turuncu): '+tris.length.toLocaleString('tr-TR')+' üçgen';
-  $('pieceDelBtn2').hidden=false;
-  return true;
+  selectedPieceTris=tris; return tris.length;
 }
-function clearPieceSel(){ selectedPieceTris=null; pieceHighlight.visible=false; const b=$('pieceDelBtn2'); if(b) b.hidden=true; }
+function selectInView(ev){ const n=highlightPiece(ev);
+  if(n){ $('selState').textContent='Seçili parça (turuncu): '+n.toLocaleString('tr-TR')+' üçgen'; $('selActions').hidden=false; }
+  else{ $('selState').textContent='O noktada parça yok — modelin üstüne tıkla'; }
+}
+function selectPieceAt(ev){ const n=highlightPiece(ev);
+  if(n){ $('eraseState').textContent='Seçili parça (turuncu): '+n.toLocaleString('tr-TR')+' üçgen'; $('pieceDelBtn2').hidden=false; return true; } return false; }
+function clearPieceSel(){ selectedPieceTris=null; pieceHighlight.visible=false; const b=$('pieceDelBtn2'); if(b) b.hidden=true; const s=$('selActions'); if(s) s.hidden=true; const ss=$('selState'); if(ss) ss.textContent=''; }
 function deleteSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; const stroke=[];
   for(const t of selectedPieceTris){ if(alive[t]){ alive[t]=0; aliveCount--; stroke.push(t); } }
   if(stroke.length) undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); clearPieceSel();
-  $('eraseState').textContent='Parça silindi ✓ ('+stroke.length.toLocaleString('tr-TR')+' üçgen)'; }
+  if($('eraseState')) $('eraseState').textContent='Parça silindi ✓'; if($('selState')) $('selState').textContent='Parça silindi ✓ ('+stroke.length.toLocaleString('tr-TR')+' üçgen)'; }
+function isolateSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; const keep=new Uint8Array(triCount); for(const t of selectedPieceTris) keep[t]=1;
+  const stroke=[]; for(let t=0;t<triCount;t++){ if(alive[t]&&!keep[t]){ alive[t]=0; aliveCount--; stroke.push(t); } }
+  if(stroke.length) undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); clearPieceSel();
+  if($('selState')) $('selState').textContent='Sadece seçili parça bırakıldı ✓'; }
+function exportSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; showLoading('Parça STL hazırlanıyor…');
+  setTimeout(()=>{ try{ const out=new Float32Array(selectedPieceTris.length*9); let w=0;
+    for(const t of selectedPieceTris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=basePos[vi]; out[w++]=basePos[vi+1]; out[w++]=basePos[vi+2]; } }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); g.computeVertexNormals();
+    const m=new THREE.Mesh(g,goldMat); m.updateMatrixWorld(true); const dv=new STLExporter().parse(m,{binary:true}); g.dispose();
+    dl(new Uint8Array(dv.buffer.slice(dv.byteOffset,dv.byteOffset+dv.byteLength)), baseName()+'_parca.stl','model/stl');
+  }catch(e){ alert('Hata: '+e.message);} hideLoading(); },30); }
 
 let spruePts=[], sprueDia=1.5, selectedSprue=null, dragging=null;
 const dragPlane=new THREE.Plane(), _dragPt=new THREE.Vector3(), _dragPrev=new THREE.Vector3(), _camDir=new THREE.Vector3();
@@ -621,6 +638,7 @@ function measureClick(p){
 function clearMeasure(){ measurePts=[]; measLine.visible=false; measMarkA.visible=false; measMarkB.visible=false; $('measVal').textContent='—'; }
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
+  if(mode==='view'){ selectInView(ev); return; }
   if(mode==='erase'){ if(eraseMode==='piece'){ const ok=selectPieceAt(ev); if(!ok){ $('eraseState').textContent='O noktada parça yok — altına tıkla'; } return; }
     painting=true; currentStroke=[]; const h=pickSurface(ev); if(h) eraseAt(h.point); renderer.domElement.setPointerCapture(ev.pointerId); }
   else if(mode==='sprue'){
@@ -824,6 +842,9 @@ $('btnRender').addEventListener('click',renderShot);
 $('btnExport').addEventListener('click',exportSTL);
 $('brushFront').addEventListener('change',e=>{ eraseFrontOnly=e.target.checked; });
 $('pieceDelBtn2').addEventListener('click',deleteSelectedPiece);
+$('selDelete').addEventListener('click',deleteSelectedPiece);
+$('selIsolate').addEventListener('click',isolateSelectedPiece);
+$('selExport').addEventListener('click',exportSelectedPiece);
 $('eraseMode').addEventListener('change',e=>{ eraseMode=e.target.value; const piece=eraseMode==='piece';
   $('brushRow').hidden=piece; $('brushFrontRow').hidden=piece; $('eraseState').textContent=''; clearPieceSel();
   $('eraseHint').innerHTML = piece ? 'Modelde bir <b>parçaya tıkla</b> → parça <b style="color:#ff6a2c">turuncu</b> seçilir → <b>Del</b> ya da "Sil" ile silersin. Döndürmek için sağ tuş.' : 'Sol tuşa basılı tutup <b>fırça gibi</b> gezdir; sana bakan yüzü siler. Döndürmek için sağ tuş.'; });
