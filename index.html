@@ -154,7 +154,7 @@
       <!-- Seç / Ayır -->
       <div class="sec" id="secView">
         <h3>Seç / Ayır</h3>
-        <div class="hint">Modelde bir <b>parçaya tıkla</b> → parça <b style="color:#ff6a2c">turuncu</b> seçilir. Ayrı duran parçaları (ör. içinden geçen çubuk, ayrı taş) seçer.<br><b>Döndür:</b> sağ tuş &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek</div>
+        <div class="hint">Parçaya <b>tıkla</b> → <b style="color:#ff6a2c">turuncu</b> seçilir. <b>Ctrl+tıkla</b> ile birden fazla parça ekle/çıkar. Seçili parçayı <b>tutup sürükle</b> → taşır.<br><b>Döndür:</b> sağ tuş &nbsp;·&nbsp; <b>Yakınlaş:</b> tekerlek &nbsp;·&nbsp; boşluğa tıkla: seçimi bırak</div>
         <div class="mini" id="selState" style="margin-top:10px"></div>
         <div id="selActions" hidden style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
           <button class="btn" id="selIsolate">✂ Sadece bunu bırak (gerisini sil)</button>
@@ -557,13 +557,30 @@ function highlightPiece(ev){
   pieceHighlight.geometry.dispose(); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); pieceHighlight.geometry=g; pieceHighlight.visible=true;
   selectedPieceTris=tris; return tris.length;
 }
-function selectInView(ev){ const n=highlightPiece(ev);
-  if(n){ $('selState').textContent='Seçili parça (turuncu): '+n.toLocaleString('tr-TR')+' üçgen'; $('selActions').hidden=false; }
-  else{ $('selState').textContent='O noktada parça yok — modelin üstüne tıkla'; }
+// ---- Çoklu seçim + taşıma (Seç modu) ----
+let selectedComps=new Set(), moveVerts=null, movingSel=false, moveAccum=null;
+function pickComp(ev){ if(!compId) computeComponents(); pointerToRay(ev); const h=raycaster.intersectObject(displayMesh,false); if(!h.length) return null; const fi=h[0].faceIndex; if(fi==null) return null; const ti=drawnOrig[fi]; if(ti==null||ti<0||ti>=triCount||!alive[ti]) return null; return {cid:compId[ti], point:h[0].point}; }
+function rebuildPieceSelection(){
+  if(!selectedComps.size){ selectedPieceTris=null; pieceHighlight.visible=false; $('selActions').hidden=true; $('selState').textContent='Seçim yok — parçaya tıkla'; return; }
+  const tris=[]; for(let t=0;t<triCount;t++){ if(alive[t] && selectedComps.has(compId[t])) tris.push(t); }
+  selectedPieceTris=tris; const out=new Float32Array(tris.length*9); let w=0;
+  for(const t of tris){ const b=t*3; for(let k=0;k<3;k++){ const vi=fullIndex[b+k]*3; out[w++]=basePos[vi]; out[w++]=basePos[vi+1]; out[w++]=basePos[vi+2]; } }
+  pieceHighlight.geometry.dispose(); const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(out,3)); pieceHighlight.geometry=g; pieceHighlight.visible=true;
+  $('selState').textContent='Seçili: '+selectedComps.size+' parça · '+tris.length.toLocaleString('tr-TR')+' üçgen'; $('selActions').hidden=false;
+}
+function selectInView(ev){
+  const hc=pickComp(ev);
+  if(!hc){ selectedComps.clear(); rebuildPieceSelection(); $('selState').textContent='Boşluğa tıklandı — seçim temizlendi'; return; }
+  if(ev.ctrlKey||ev.metaKey){ if(selectedComps.has(hc.cid)) selectedComps.delete(hc.cid); else selectedComps.add(hc.cid); }
+  else if(!selectedComps.has(hc.cid)){ selectedComps=new Set([hc.cid]); }
+  rebuildPieceSelection();
+  // taşımaya hazırla
+  if(selectedPieceTris && selectedPieceTris.length){ const vs=new Set(); for(const t of selectedPieceTris){ const b=t*3; vs.add(fullIndex[b]); vs.add(fullIndex[b+1]); vs.add(fullIndex[b+2]); } moveVerts=[...vs];
+    camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), hc.point); _dragPrev.copy(hc.point); moveAccum=new THREE.Vector3(); movingSel=true; renderer.domElement.setPointerCapture(ev.pointerId); }
 }
 function selectPieceAt(ev){ const n=highlightPiece(ev);
   if(n){ $('eraseState').textContent='Seçili parça (turuncu): '+n.toLocaleString('tr-TR')+' üçgen'; $('pieceDelBtn2').hidden=false; return true; } return false; }
-function clearPieceSel(){ selectedPieceTris=null; pieceHighlight.visible=false; const b=$('pieceDelBtn2'); if(b) b.hidden=true; const s=$('selActions'); if(s) s.hidden=true; const ss=$('selState'); if(ss) ss.textContent=''; }
+function clearPieceSel(){ selectedPieceTris=null; pieceHighlight.visible=false; if(typeof selectedComps!=='undefined'&&selectedComps) selectedComps.clear(); movingSel=false; moveVerts=null; const b=$('pieceDelBtn2'); if(b) b.hidden=true; const s=$('selActions'); if(s) s.hidden=true; const ss=$('selState'); if(ss) ss.textContent=''; }
 function deleteSelectedPiece(){ if(!selectedPieceTris||!selectedPieceTris.length) return; const stroke=[];
   for(const t of selectedPieceTris){ if(alive[t]){ alive[t]=0; aliveCount--; stroke.push(t); } }
   if(stroke.length) undoStack.push({type:'erase',tris:stroke}); needsRebuild=true; updateStats(); clearPieceSel();
@@ -661,6 +678,10 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
     deselectPart();
     const h=pickSurface(ev); if(!h) return; addRing(h.point); $('partState').textContent='Halka eklendi ✓ (tekerlekle boyutla, sürükle taşı)'; } });
 renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
+  if(movingSel && moveVerts){ pointerToRay(ev); if(raycaster.ray.intersectPlane(dragPlane,_dragPt)){ const dx=_dragPt.x-_dragPrev.x,dy=_dragPt.y-_dragPrev.y,dz=_dragPt.z-_dragPrev.z;
+    if(dx||dy||dz){ const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array; for(const vi of moveVerts){ const i=vi*3; basePos[i]+=dx;basePos[i+1]+=dy;basePos[i+2]+=dz; dp[i]+=dx;dp[i+1]+=dy;dp[i+2]+=dz; fp[i]+=dx;fp[i+1]+=dy;fp[i+2]+=dz; } displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true;
+      const hp=pieceHighlight.geometry.attributes.position.array; for(let k=0;k<hp.length;k+=3){ hp[k]+=dx;hp[k+1]+=dy;hp[k+2]+=dz; } pieceHighlight.geometry.attributes.position.needsUpdate=true;
+      moveAccum.x+=dx; moveAccum.y+=dy; moveAccum.z+=dz; _dragPrev.copy(_dragPt); } } return; }
   if(dragging){ pointerToRay(ev); if(raycaster.ray.intersectPlane(dragPlane,_dragPt)){ const u=dragging.userData, dx=_dragPt.x-_dragPrev.x, dy=_dragPt.y-_dragPrev.y, dz=_dragPt.z-_dragPrev.z;
       if(dragKind==='part'){ u.pos.x+=dx;u.pos.y+=dy;u.pos.z+=dz; rebuildPart(dragging); }
       else { u.p1.x+=dx;u.p1.y+=dy;u.p1.z+=dz; u.p2.x+=dx;u.p2.y+=dy;u.p2.z+=dz; rebuildSprue(dragging); }
@@ -668,7 +689,8 @@ renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
   if(mode==='erase'){ const h=pickSurface(ev); if(h){ cursorRing.visible=true; cursorRing.position.copy(h.point); cursorRing.lookAt(h.point.clone().add(h.face?h.face.normal:new THREE.Vector3(0,1,0))); } else cursorRing.visible=false; if(painting&&(ev.buttons&1)&&h) eraseAt(h.point); }
   else if(mode==='sprue'&&spruePts.length===1){ const h=pickSurface(ev); if(h){ previewLine.visible=true; const p=previewLine.geometry.attributes.position; p.setXYZ(0,spruePts[0].x,spruePts[0].y,spruePts[0].z); p.setXYZ(1,h.point.x,h.point.y,h.point.z); p.needsUpdate=true; previewLine.computeLineDistances(); } }
   else cursorRing.visible=false; });
-function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; dragKind=null; }
+function endPaint(){ if(painting){ painting=false; if(currentStroke.length) undoStack.push({type:'erase',tris:currentStroke}); currentStroke=[]; updateStats(); } dragging=null; dragKind=null;
+  if(movingSel){ movingSel=false; if(moveAccum && moveAccum.lengthSq()>1e-10){ undoStack.push({type:'move', verts:moveVerts.slice(), d:[moveAccum.x,moveAccum.y,moveAccum.z]}); displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} } } }
 renderer.domElement.addEventListener('pointerup',endPaint);
 renderer.domElement.addEventListener('pointerleave',()=>{cursorRing.visible=false;});
 renderer.domElement.addEventListener('wheel',(ev)=>{
@@ -678,7 +700,8 @@ renderer.domElement.addEventListener('wheel',(ev)=>{
 },{passive:false});
 
 function undo(){ const op=undoStack.pop(); if(!op) return; if(op.type==='erase'){ for(const t of op.tris){ if(!alive[t]){ alive[t]=1; aliveCount++; } } needsRebuild=true; } else if(op.type==='sprue'){ if(op.mesh===selectedSprue) deselectSprue(); op.mesh.geometry.dispose(); spruesGroup.remove(op.mesh); }
-  else if(op.type==='part'){ if(op.mesh===selectedPart) deselectPart(); op.mesh.geometry.dispose(); partsGroup.remove(op.mesh); } updateStats(); }
+  else if(op.type==='part'){ if(op.mesh===selectedPart) deselectPart(); op.mesh.geometry.dispose(); partsGroup.remove(op.mesh); }
+  else if(op.type==='move'){ const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array; for(const vi of op.verts){ const i=vi*3; basePos[i]-=op.d[0]; basePos[i+1]-=op.d[1]; basePos[i+2]-=op.d[2]; dp[i]-=op.d[0]; dp[i+1]-=op.d[1]; dp[i+2]-=op.d[2]; fp[i]-=op.d[0]; fp[i+1]-=op.d[1]; fp[i+2]-=op.d[2]; } displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true; displayGeom.computeVertexNormals(); try{ fullGeom.disposeBoundsTree(); fullGeom.computeBoundsTree(); }catch(e){} if(mode==='view'&&selectedComps.size) rebuildPieceSelection(); } updateStats(); }
 function resetEdits(){ if(!fullGeom) return; alive.fill(1); aliveCount=triCount; needsRebuild=true; clearSprues(); undoStack.length=0; cancelSprue(); updateStats(); }
 
 function buildCarvedGeometry(posSource){ const pos=posSource, out=new Float32Array(aliveCount*9); let w=0;
