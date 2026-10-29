@@ -119,6 +119,7 @@
       <div class="mode" data-mode="size">💍 <span>Boylama</span></div>
       <div class="mode" data-mode="parts">🔗 <span>Parça</span></div>
       <div class="mode" data-mode="smooth">🪄 <span>Yumuşat</span></div>
+      <div class="mode" data-mode="stone">💎 <span>Taş</span></div>
       <div class="mode" data-mode="measure">📏 <span>Ölç</span></div>
     </div>
     <div class="spacer"></div>
@@ -295,6 +296,19 @@
         <div class="hint">Keskin kenarın üstünde sol tuşa basılı tutup <b>gezdir</b> → kenar yuvarlanır (parmağı kesmesin). Yavaş yavaş, üstünden geçtikçe artar. Döndür: sağ tuş. Geri al: ↶</div>
       </div>
 
+      <!-- Taş / Katır -->
+      <div class="sec" id="secStone" hidden>
+        <h3>Taş / Katır</h3>
+        <button class="btn primary block" id="btnStoneScan">💎 Taşları tara ve say</button>
+        <div class="bigwrap" style="padding:8px 0 4px"><div class="bignum" id="stoneTotal" style="font-size:20px; color:var(--accent)">—</div></div>
+        <div id="stoneResult" style="margin:4px 0"></div>
+        <div class="hint">Taş yuvalarını otomatik bulur, <b>boya göre adet</b> verir (taş = yuva − 0.05). Kırmızı noktalar bulunan yuvalar. <b>İlk sürüm:</b> gerçek adetle karşılaştır, sapma varsa söyle — ayarlarım.</div>
+        <details style="margin-top:12px">
+          <summary>Katır patlatma</summary>
+          <div class="hint" style="margin-top:8px">Yuvaların altını (katır) patlatmak <b>boolean kesim</b> ister ve senin kesici ölçüne (koni açısı, derinlik) birebir uymalı. Bozuk üretim olmasın diye: Matrix'te <b>patlatılmış örnek bir STL</b> at → kesicini ölçüp birebir aynısını buraya kurayım. Tespit/sayım hazır; patlatma o örnekle netleşecek.</div>
+        </details>
+      </div>
+
       <!-- Ölçü -->
       <div class="sec" id="secMeasure" hidden>
         <h3>Ölçü</h3>
@@ -392,9 +406,50 @@ const measMarkB=new THREE.Mesh(new THREE.SphereGeometry(1,16,16), measMarkMat); 
 // Parça seçim vurgusu
 const pieceHiMat=new THREE.MeshBasicMaterial({color:0xff6a2c, transparent:true, opacity:0.85, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2});
 const pieceHighlight=new THREE.Mesh(new THREE.BufferGeometry(), pieceHiMat); pieceHighlight.visible=false; pieceHighlight.renderOrder=6; scene.add(pieceHighlight);
+// ---- Taş yuvası tespiti ----
+let stoneSeats=[];
+function clearStoneMarks(){ [...stoneMarksGroup.children].forEach(m=>{m.geometry.dispose(); stoneMarksGroup.remove(m);}); }
+const STD_STONES=[1.00,1.10,1.25,1.30,1.50,1.75,2.00,2.25,2.50,2.75,3.00,3.50,4.00], SEAT_ALLOW=0.05;
+function sliceLoops(level){ const a=axisIdx,u=pA,v=pB,pos=basePos; const segs=[];
+  for(let t=0;t<triCount;t++){ if(!alive[t]) continue; const b=t*3,i0=fullIndex[b],i1=fullIndex[b+1],i2=fullIndex[b+2];
+    const d0=pos[i0*3+a]-level,d1=pos[i1*3+a]-level,d2=pos[i2*3+a]-level; const n=(d0>=0)+(d1>=0)+(d2>=0); if(n===0||n===3) continue;
+    const P=[]; const E=[[i0,i1,d0,d1],[i1,i2,d1,d2],[i2,i0,d2,d0]];
+    for(const e of E){ const da=e[2],db=e[3]; if((da<0)!==(db<0)&&da!==db){ const tt=da/(da-db); P.push([pos[e[0]*3+u]+tt*(pos[e[1]*3+u]-pos[e[0]*3+u]), pos[e[0]*3+v]+tt*(pos[e[1]*3+v]-pos[e[0]*3+v])]); } }
+    if(P.length>=2) segs.push([P[0],P[1]]); }
+  const key=p=>Math.round(p[0]*400)+','+Math.round(p[1]*400); const adj=new Map(),pts=new Map();
+  for(const s of segs){ const k0=key(s[0]),k1=key(s[1]); pts.set(k0,s[0]);pts.set(k1,s[1]); (adj.get(k0)||adj.set(k0,[]).get(k0)).push(k1); (adj.get(k1)||adj.set(k1,[]).get(k1)).push(k0); }
+  const seen=new Set(),out=[];
+  for(const start of adj.keys()){ if(seen.has(start)) continue; const loop=[start]; seen.add(start); let cur=start,prev=null;
+    while(true){ const nb=(adj.get(cur)||[]).filter(x=>x!==prev&&!seen.has(x)); if(!nb.length) break; const nx=nb[0]; loop.push(nx); seen.add(nx); prev=cur; cur=nx; if(loop.length>3000) break; }
+    if(loop.length>=4){ const arr=loop.map(k=>pts.get(k)); let area=0,per=0,cx=0,cy=0;
+      for(let i=0;i<arr.length;i++){ const p=arr[i],q=arr[(i+1)%arr.length]; area+=p[0]*q[1]-q[0]*p[1]; per+=Math.hypot(q[0]-p[0],q[1]-p[1]); cx+=p[0];cy+=p[1]; }
+      area=Math.abs(area)/2; const d=2*Math.sqrt(area/Math.PI), circ=4*Math.PI*area/(per*per+1e-9); out.push({d,circ,cu:cx/arr.length,cv:cy/arr.length}); } }
+  return out; }
+function detectStones(){ if(!fullGeom) return; showLoading('Taşlar taranıyor…');
+  setTimeout(()=>{ try{
+    const a=axisIdx,pos=basePos; let amin=1e9,amax=-1e9; for(let i=0;i<pos.length;i+=3){ const vv=pos[i+a]; if(vv<amin)amin=vv; if(vv>amax)amax=vv; }
+    const step=Math.max(0.3,(amax-amin)/40), cands=[];
+    for(let lv=amin+step*0.5; lv<amax; lv+=step){ for(const L of sliceLoops(lv)){ if(L.d>0.5&&L.d<4.0&&L.circ>0.6) cands.push({d:L.d,cu:L.cu,cv:L.cv,lv}); } }
+    cands.sort((x,y)=>y.d-x.d); const used=new Array(cands.length).fill(false), cl=[];
+    for(let i=0;i<cands.length;i++){ if(used[i])continue; const c=cands[i]; used[i]=true; let dmax=c.d,su=c.cu,sv=c.cv,slv=c.lv,n=1;
+      for(let j=i+1;j<cands.length;j++){ if(used[j])continue; if(Math.hypot(cands[j].cu-c.cu,cands[j].cv-c.cv)<0.8){ used[j]=true; if(cands[j].d>dmax)dmax=cands[j].d; su+=cands[j].cu;sv+=cands[j].cv;slv+=cands[j].lv;n++; } }
+      cl.push({dia:dmax,cu:su/n,cv:sv/n,lv:slv/n}); }
+    const filtered=cl.filter(c=> Math.hypot(c.cu-holeC[0],c.cv-holeC[1]) > innerR*0.55 );
+    const counts={}; let totalCt=0;
+    for(const s of filtered){ const stone=s.dia-SEAT_ALLOW; let best=STD_STONES[0]; for(const sd of STD_STONES){ if(Math.abs(sd-stone)<Math.abs(best-stone)) best=sd; } s.stone=best; counts[best]=(counts[best]||0)+1; totalCt+=0.0061*best*best*(0.62*best); }
+    stoneSeats=filtered; clearStoneMarks();
+    for(const s of filtered){ const p=[0,0,0]; p[a]=s.lv; p[pA]=s.cu; p[pB]=s.cv; const m=new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.18,s.dia*0.35),10,10), new THREE.MeshBasicMaterial({color:0xff3b30,depthTest:false})); m.position.set(p[0],p[1],p[2]); m.renderOrder=1002; stoneMarksGroup.add(m); }
+    const sizes=Object.keys(counts).map(Number).sort((x,y)=>x-y); let h='';
+    for(const sz of sizes) h+=`<div class="stat"><span>${sz.toFixed(2)} mm taş <span style="opacity:.7">(yuva ${(sz+SEAT_ALLOW).toFixed(2)})</span></span><b>${counts[sz]} adet</b></div>`;
+    $('stoneResult').innerHTML = h || '<div class="mini">Taş yuvası bulunamadı.</div>';
+    $('stoneTotal').textContent = filtered.length+' taş · ~'+totalCt.toFixed(2)+' ct';
+    wake();
+  }catch(e){ alert('Tarama hatası: '+e.message);} hideLoading(); },30); }
+
 // İç çap tespit çemberi (boylamada görünür)
 const boreRing=new THREE.LineLoop(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0x00c2ff, depthTest:false})); boreRing.visible=false; boreRing.renderOrder=1001; scene.add(boreRing);
 const boreDia=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]), new THREE.LineDashedMaterial({color:0x00c2ff, dashSize:0.8, gapSize:0.5, depthTest:false})); boreDia.visible=false; boreDia.renderOrder=1001; scene.add(boreDia);
+const stoneMarksGroup=new THREE.Group(); scene.add(stoneMarksGroup);
 
 let fullGeom=null, fullIndex=null, triCount=0, alive=null, aliveCount=0;
 let renderIndexBuffer=null, displayGeom=null, basePos=null, colorAttr=null, drawnOrig=null;
@@ -411,6 +466,7 @@ function updatePanel(){
   $('secSize').hidden = mode!=='size';
   $('secParts').hidden = mode!=='parts';
   $('secSmooth').hidden = mode!=='smooth';
+  $('secStone').hidden = mode!=='stone';
   $('secMeasure').hidden = mode!=='measure';
 }
 function setMode(m){
@@ -418,6 +474,7 @@ function setMode(m){
   document.querySelectorAll('.mode').forEach(e=>e.classList.toggle('active', e.dataset.mode===m));
   cursorRing.visible=false; cancelSprue(); deselectSprue(); deselectPart(); updatePanel();
   if(m!=='measure') clearMeasure();
+  stoneMarksGroup.visible = (m==='stone');
   clearPieceSel();
   if(m!=='size'){ setPreview(''); const pb=$('prevBox'); if(pb) pb.hidden=true; }
   // Matrix mantığı: sol tuş = tıkla/seç/işle, sağ tuş = döndür, tekerlek = yakınlaş
@@ -533,7 +590,7 @@ function loadGeometry(geom, name, isDemo){
   displayGeom.setIndex(new THREE.BufferAttribute(renderIndexBuffer,1)); displayGeom.setDrawRange(0, fullIndex.length);
   displayMesh.geometry=displayGeom; queryMesh.geometry=fullGeom;
   const size=new THREE.Vector3(); fullGeom.boundingBox.getSize(size); modelRadius=fullGeom.boundingSphere.radius;
-  clearSprues(); clearParts(); undoStack.length=0; previewActive=false; compId=null; vAdj=null;
+  clearSprues(); clearParts(); clearStoneMarks(); stoneSeats=[]; if($('stoneResult')) $('stoneResult').innerHTML=''; if($('stoneTotal')) $('stoneTotal').textContent='—'; undoStack.length=0; previewActive=false; compId=null; vAdj=null;
   scene.remove(grid); grid=new THREE.GridHelper(Math.max(modelRadius*3,10),20,0xcfd4db,0xe1e4ea); grid.material.transparent=true; grid.material.opacity=0.6; grid.position.y=fullGeom.boundingBox.min.y; scene.add(grid);
   applyAnalysis(analyzeRingPure(basePos,null)); computeVertAng();
   $('curSize').textContent=currentSizeMM.toFixed(0); $('curDia').textContent=(2*innerR).toFixed(2)+' mm'; $('curSizeIn').value='';
@@ -960,6 +1017,7 @@ function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($
 $('btnAddRing').addEventListener('click',addRingCenter);
 $('btnBake').addEventListener('click',bakeParts);
 $('btnBake2').addEventListener('click',bakeParts);
+$('btnStoneScan').addEventListener('click',detectStones);
 $('partDelBtn').addEventListener('click',deletePart);
 $('rigidHead').addEventListener('change',e=>{ rigidHead=e.target.checked; $('headControls').hidden=!rigidHead; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
