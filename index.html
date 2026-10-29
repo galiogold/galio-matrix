@@ -274,9 +274,13 @@
         <div class="row"><label>Döndürme</label>
           <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partRot" min="-180" max="180" step="5" value="0" style="width:66px; text-align:right"><span style="color:var(--muted)">°</span></span>
         </div>
-        <div class="hint" id="partHint"><b>Eklemek:</b> modelde halkanın gelmesini istediğin yere tıkla.<br><b>Büyüt/küçült:</b> seçiliyken fare <b>tekerleği</b>, ya da yukarıdan iç çapı yaz.<br><b>Taşı:</b> tıkla sürükle. <b>Sil:</b> seç → Del.</div>
+        <div class="row"><label>Ağız açıklığı (kes)</label>
+          <span style="display:flex; gap:6px; align-items:center"><input type="number" id="partGap" min="0" max="180" step="5" value="0" style="width:66px; text-align:right"><span style="color:var(--muted)">°</span></span>
+        </div>
+        <button class="btn primary block" id="btnAddRing" style="margin-top:4px">＋ Halkayı ortaya ekle</button>
+        <div class="hint" id="partHint"><b>Eklemek:</b> modele ya da <b>boşluğa tıkla</b> (ya da üstteki düğme).<br><b>Taşı:</b> halkaya tıkla, sürükle (her yere). <b>Büyüt/küçült:</b> seçiliyken tekerlek.<br><b>Kes/ağız aç:</b> "Ağız açıklığı"nı artır → halka ucu açılır (jump ring). Döndür: sağ tuş. Sil: seç → Del.</div>
         <button class="btn block" id="partDelBtn" hidden style="margin-top:10px">🗑 Seçili parçayı sil</button>
-        <div class="mini" id="partState">Eklemek için modele tıkla</div>
+        <div class="mini" id="partState">Eklemek için modele ya da boşluğa tıkla</div>
       </div>
 
       <!-- Yumuşat -->
@@ -669,17 +673,20 @@ function updateSprueHint(){ const h=$('sprueHint'); if(!h) return; h.innerHTML =
 
 // ---------- Hazır parçalar (halka) ----------
 let selectedPart=null, dragKind=null;
-let partThick=0.8, partInnerD=3, partTilt=0, partRot=0;
+let partThick=0.8, partInnerD=3, partTilt=0, partRot=0, partGap=0;
 function clearParts(){ [...partsGroup.children].forEach(m=>{m.geometry.dispose(); partsGroup.remove(m);}); selectedPart=null; const b=$('partDelBtn'); if(b) b.hidden=true; }
 function buildRingGeom(u){ const tube=Math.max(0.05,u.thickness/2), radius=u.innerD/2+tube;
-  const geo=new THREE.TorusGeometry(radius, tube, 18, 64);
+  const gap=Math.max(0,Math.min(300,u.gap||0)); const arc=Math.PI*2 - THREE.MathUtils.degToRad(gap);
+  const tubSeg=Math.max(8, Math.round(64*arc/(Math.PI*2)));
+  const geo=new THREE.TorusGeometry(radius, tube, 18, tubSeg, arc);
   const rx=THREE.MathUtils.degToRad(90+u.tilt), ry=THREE.MathUtils.degToRad(u.rot);
   const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(rx,ry,0,'XYZ'));
   geo.applyMatrix4(new THREE.Matrix4().compose(u.pos, q, new THREE.Vector3(1,1,1))); return geo; }
 function rebuildPart(m){ m.geometry.dispose(); m.geometry=buildRingGeom(m.userData); }
-function addRing(point){ const u={kind:'ring', pos:point.clone(), tilt:partTilt, rot:partRot, thickness:partThick, innerD:partInnerD};
+function addRing(point){ const u={kind:'ring', pos:point.clone(), tilt:partTilt, rot:partRot, thickness:partThick, innerD:partInnerD, gap:partGap};
   const m=new THREE.Mesh(buildRingGeom(u), ringMat); m.userData=u; partsGroup.add(m); undoStack.push({type:'part',mesh:m}); updateStats(); selectPart(m); return m; }
-function setPartUI(u){ const a=$('partThick'),b=$('partInner'),c=$('partTilt'),d=$('partRot'); if(a)a.value=u.thickness; if(b)b.value=(+u.innerD).toFixed(1); if(c)c.value=u.tilt; if(d)d.value=u.rot; }
+function addRingCenter(){ addRing(controls.target.clone()); $('partState').textContent='Halka ortaya eklendi ✓ — sürükleyerek taşı'; }
+function setPartUI(u){ const a=$('partThick'),b=$('partInner'),c=$('partTilt'),d=$('partRot'),g=$('partGap'); if(a)a.value=u.thickness; if(b)b.value=(+u.innerD).toFixed(1); if(c)c.value=u.tilt; if(d)d.value=u.rot; if(g)g.value=u.gap||0; }
 function selectPart(m){ if(selectedPart&&selectedPart!==m) selectedPart.material=ringMat; selectedPart=m; if(m){ m.material=ringSelMat; setPartUI(m.userData); controls.enableZoom=false; } const b=$('partDelBtn'); if(b) b.hidden=!m; }
 function deselectPart(){ if(selectedPart){ selectedPart.material=ringMat; selectedPart=null; } controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; }
 function deletePart(){ if(!selectedPart) return; selectedPart.geometry.dispose(); partsGroup.remove(selectedPart); selectedPart=null; controls.enableZoom=true; const b=$('partDelBtn'); if(b) b.hidden=true; updateStats(); }
@@ -745,7 +752,10 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
       camera.getWorldDirection(_camDir); dragPlane.setFromNormalAndCoplanarPoint(_camDir.clone().negate(), ph[0].point); _dragPrev.copy(ph[0].point);
       renderer.domElement.setPointerCapture(ev.pointerId); return; }
     deselectPart();
-    const h=pickSurface(ev); if(!h) return; addRing(h.point); $('partState').textContent='Halka eklendi ✓ (tekerlekle boyutla, sürükle taşı)'; } });
+    const h=pickSurface(ev); let p=null;
+    if(h) p=h.point.clone();
+    else { camera.getWorldDirection(_camDir); const pl=new THREE.Plane().setFromNormalAndCoplanarPoint(_camDir.clone().negate(), controls.target); pointerToRay(ev); const pt=new THREE.Vector3(); if(raycaster.ray.intersectPlane(pl,pt)) p=pt; }
+    if(p){ addRing(p); $('partState').textContent='Halka eklendi ✓ (sürükle taşı, tekerlek boyutla)'; } } });
 renderer.domElement.addEventListener('pointermove',(ev)=>{ if(!fullGeom) return;
   if(movingSel && moveVerts){ pointerToRay(ev); if(raycaster.ray.intersectPlane(dragPlane,_dragPt)){ const dx=_dragPt.x-_dragPrev.x,dy=_dragPt.y-_dragPrev.y,dz=_dragPt.z-_dragPrev.z;
     if(dx||dy||dz){ const dp=displayGeom.attributes.position.array, fp=fullGeom.attributes.position.array; for(const vi of moveVerts){ const i=vi*3; basePos[i]+=dx;basePos[i+1]+=dy;basePos[i+2]+=dz; dp[i]+=dx;dp[i+1]+=dy;dp[i+2]+=dz; fp[i]+=dx;fp[i+1]+=dy;fp[i+2]+=dz; } displayGeom.attributes.position.needsUpdate=true; fullGeom.attributes.position.needsUpdate=true;
@@ -899,10 +909,11 @@ $('sprueStraight').addEventListener('click',()=>{ if(selectedSprue) straightenSp
 $('sprueSnap').addEventListener('click',()=>{ if(selectedSprue) snapSprueBase(selectedSprue); });
 $('sprueMode').addEventListener('change',e=>{ sprueMode=e.target.value; $('sprueLenRow').hidden=(sprueMode!=='1p'); updateSprueHint(); cancelSprue(); });
 $('sprueLen').addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)) sprueLen=Math.max(0.5,v); });
-function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($('partInner').value), ti=parseFloat($('partTilt').value), r=parseFloat($('partRot').value);
-  if(isFinite(t)) partThick=Math.max(0.1,t); if(isFinite(i)) partInnerD=Math.max(0.5,i); if(isFinite(ti)) partTilt=ti; if(isFinite(r)) partRot=r;
-  if(selectedPart){ const u=selectedPart.userData; u.thickness=partThick; u.innerD=partInnerD; u.tilt=partTilt; u.rot=partRot; rebuildPart(selectedPart); } }
-['partThick','partInner','partTilt','partRot'].forEach(id=>$(id).addEventListener('input',onPartParam));
+function onPartParam(){ const t=parseFloat($('partThick').value), i=parseFloat($('partInner').value), ti=parseFloat($('partTilt').value), r=parseFloat($('partRot').value), g=parseFloat($('partGap').value);
+  if(isFinite(t)) partThick=Math.max(0.1,t); if(isFinite(i)) partInnerD=Math.max(0.5,i); if(isFinite(ti)) partTilt=ti; if(isFinite(r)) partRot=r; if(isFinite(g)) partGap=Math.max(0,Math.min(300,g));
+  if(selectedPart){ const u=selectedPart.userData; u.thickness=partThick; u.innerD=partInnerD; u.tilt=partTilt; u.rot=partRot; u.gap=partGap; rebuildPart(selectedPart); } }
+['partThick','partInner','partTilt','partRot','partGap'].forEach(id=>$(id).addEventListener('input',onPartParam));
+$('btnAddRing').addEventListener('click',addRingCenter);
 $('partDelBtn').addEventListener('click',deletePart);
 $('rigidHead').addEventListener('change',e=>{ rigidHead=e.target.checked; $('headControls').hidden=!rigidHead; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
 $('pCenter').addEventListener('input',e=>{ headCenterDeg=parseFloat(e.target.value); $('pcVal').textContent=Math.round(headCenterDeg)+'°'; refreshProtectedColors(); if(previewActive) setPreview($('previewSize').value); });
