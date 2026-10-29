@@ -274,8 +274,11 @@
       <!-- Ölçü -->
       <div class="sec" id="secMeasure" hidden>
         <h3>Ölçü</h3>
-        <div class="bigwrap"><div class="bignum" id="measVal" style="color:var(--accent)">—</div><div class="biglbl">iki nokta arası · mm</div></div>
-        <div class="hint">Modelde <b>iki nokta</b> tıkla; arasındaki mesafeyi mm verir.<br><b>İç çap</b> için deliğin karşılıklı iki iç kenarına tıkla. Döndürmek için sağ tuş.</div>
+        <div class="row"><label>Ölçü tipi</label>
+          <select id="measType" style="width:165px"><option value="dist">İki nokta arası</option><option value="thick">Et kalınlığı (tek tık)</option></select>
+        </div>
+        <div class="bigwrap"><div class="bignum" id="measVal" style="color:var(--accent)">—</div><div class="biglbl" id="measUnit">mm</div></div>
+        <div class="hint" id="measHint">Modelde <b>iki nokta</b> tıkla; arasındaki mesafeyi mm verir. <b>İç çap</b> için deliğin karşılıklı iki iç kenarına tıkla. Döndür: sağ tuş.</div>
         <button class="btn block" id="measClear" style="margin-top:10px">Temizle</button>
       </div>
     </aside>
@@ -652,7 +655,20 @@ function measureClick(p){
     const g=measLine.geometry.attributes.position; g.setXYZ(0,measurePts[0].x,measurePts[0].y,measurePts[0].z); g.setXYZ(1,p.x,p.y,p.z); g.needsUpdate=true; measLine.visible=true;
     $('measVal').textContent=measurePts[0].distanceTo(p).toFixed(2); }
 }
-function clearMeasure(){ measurePts=[]; measLine.visible=false; measMarkA.visible=false; measMarkB.visible=false; $('measVal').textContent='—'; }
+function clearMeasure(){ measurePts=[]; measLine.visible=false; measMarkA.visible=false; measMarkB.visible=false; $('measVal').textContent='—'; $('measUnit').textContent=(measType==='thick')?'et kalınlığı':'mm'; }
+let measType='dist';
+const _thRC=new THREE.Raycaster(); _thRC.firstHitOnly=true;
+function measureThickness(h){
+  const p=h.point.clone(); let n=(h.face&&h.face.normal)?h.face.normal.clone():null; if(!n){ $('measVal').textContent='—'; $('measUnit').textContent='(yüzey yönü yok)'; return; }
+  n.normalize(); const dir=n.clone().negate(); const origin=p.clone().add(dir.clone().multiplyScalar(modelRadius*1e-3));
+  _thRC.set(origin, dir); _thRC.far=modelRadius*4;
+  const hits=_thRC.intersectObject(displayMesh,false);
+  if(hits.length){ const th=hits[0].distance + modelRadius*1e-3; const ep=hits[0].point.clone();
+    $('measVal').textContent=th.toFixed(3); $('measUnit').textContent='mm  ·  '+Math.round(th*1000)+' µm (mikron)';
+    measMarkA.position.copy(p); measMarkB.position.copy(ep); const s=measureMarkScale(); measMarkA.scale.setScalar(s); measMarkB.scale.setScalar(s); measMarkA.visible=true; measMarkB.visible=true;
+    const g=measLine.geometry.attributes.position; g.setXYZ(0,p.x,p.y,p.z); g.setXYZ(1,ep.x,ep.y,ep.z); g.needsUpdate=true; measLine.visible=true;
+  } else { $('measVal').textContent='—'; $('measUnit').textContent='karşı yüzey bulunamadı (açık/ince kenar)'; measMarkA.visible=false; measMarkB.visible=false; measLine.visible=false; }
+}
 let painting=false;
 renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fullGeom) return;
   if(mode==='view'){ selectInView(ev); return; }
@@ -669,7 +685,7 @@ renderer.domElement.addEventListener('pointerdown',(ev)=>{ if(ev.button!==0||!fu
     spruePts.push(h.point.clone());
     if(spruePts.length===1){ startMark.position.copy(spruePts[0]); startMark.visible=true; $('sprueState').textContent='Bitiş noktasını seç'; }
     else{ addSprue(spruePts[0],spruePts[1],true); cancelSprue(); $('sprueState').textContent='Çubuk eklendi ✓'; } }
-  else if(mode==='measure'){ const h=pickSurface(ev); if(!h) return; measureClick(h.point.clone()); return; }
+  else if(mode==='measure'){ const h=pickSurface(ev); if(!h) return; if(measType==='thick') measureThickness(h); else measureClick(h.point.clone()); return; }
   else if(mode==='parts'){
     pointerToRay(ev); const ph=raycaster.intersectObjects(partsGroup.children,false);
     if(ph.length){ selectPart(ph[0].object); dragging=ph[0].object; dragKind='part';
@@ -877,10 +893,16 @@ async function forceUpdate(){ showLoading('Güncelleniyor…');
   location.reload(); }
 $('btnUpdate').addEventListener('click',forceUpdate);
 $('measClear').addEventListener('click',clearMeasure);
+$('measType').addEventListener('change',e=>{ measType=e.target.value; clearMeasure();
+  $('measUnit').textContent=(measType==='thick')?'et kalınlığı':'mm';
+  $('measHint').innerHTML=(measType==='thick')
+    ? 'Yüzeyde bir yere <b>tıkla</b> → o noktadaki <b>et kalınlığını</b> karşı yüzeye kadar ölçer (mm ve mikron). İnce/kesebilecek yerleri bulmak için. Döndür: sağ tuş.'
+    : 'Modelde <b>iki nokta</b> tıkla; arasındaki mesafeyi mm verir. <b>İç çap</b> için deliğin karşılıklı iki iç kenarına tıkla.'; });
 window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ cancelSprue(); deselectSprue(); deselectPart(); clearPieceSel(); }
   const typing=/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||''));
   if((e.key==='Delete'||e.key==='Backspace') && !typing){ if(selectedPieceTris&&selectedPieceTris.length){ e.preventDefault(); deleteSelectedPiece(); } else if(selectedSprue){ e.preventDefault(); deleteSelectedSprue(); } else if(selectedPart){ e.preventDefault(); deletePart(); } }
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a' && mode==='view' && fullGeom && !typing){ e.preventDefault(); if(!compId) computeComponents(); selectedComps=new Set(); for(let t=0;t<triCount;t++){ if(alive[t]) selectedComps.add(compId[t]); } rebuildPieceSelection(); }
   if(!typing){ if(e.key==='1') setMode('view'); if(e.key==='2') setMode('erase'); if(e.key==='3') setMode('sprue'); if(e.key==='4') setMode('size'); if(e.key==='5') setMode('parts'); } });
 function onResize(){ const w=stage.clientWidth,h=stage.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
 window.addEventListener('resize',onResize);
